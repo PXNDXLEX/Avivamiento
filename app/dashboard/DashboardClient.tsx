@@ -1,0 +1,1408 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { signOut, adminCreateUser, adminUpdateUserRole } from '@/app/actions';
+import type { Profile, Member, Role } from '@/lib/types';
+import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
+import {
+  Users,
+  UserPlus,
+  BarChart2,
+  LogOut,
+  Search,
+  Plus,
+  Edit2,
+  Trash2,
+  X,
+  Shield,
+  User,
+  Crown,
+  Loader2,
+  MapPin,
+  AlertTriangle,
+  CheckCircle,
+  Check,
+  Filter,
+  Flame,
+  Home,
+  Calendar,
+  BookOpen,
+} from 'lucide-react';
+
+/* ─── Types & Constants ─────────────────────────────────── */
+interface Props {
+  profile: Profile;
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  Nuevo: '#2ecc71',
+  Reconciliado: '#3498db',
+  Visitante: '#C9A84C',
+};
+
+const ROLE_LABELS: Record<Role, string> = {
+  principal: 'Principal',
+  admin: 'Administrador',
+  user: 'Consolidador',
+};
+
+type ActiveTab = 'home' | 'members' | 'reports' | 'users';
+
+/* ─── Sub-components ────────────────────────────────────── */
+
+function StatCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: number;
+  icon: string;
+  color: string;
+}) {
+  return (
+    <div className="card-metric">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div>
+          <p
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              marginBottom: '0.5rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            {label}
+          </p>
+          <p
+            className="font-cinzel"
+            style={{
+              fontSize: '2.4rem',
+              fontWeight: 700,
+              color,
+              lineHeight: 1,
+            }}
+          >
+            {value}
+          </p>
+        </div>
+        <span style={{ fontSize: '1.8rem' }}>{icon}</span>
+      </div>
+    </div>
+  );
+}
+
+function Toast({
+  msg,
+  type,
+}: {
+  msg: string;
+  type: 'success' | 'error';
+}) {
+  return (
+    <div
+      role="alert"
+      className={`toast toast-${type === 'success' ? 'success' : 'error'}`}
+      style={{
+        position: 'fixed',
+        top: '1.5rem',
+        right: '1.5rem',
+        zIndex: 9999,
+        animation: 'slide-in-right 0.3s ease',
+      }}
+    >
+      {type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+      {msg}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 300,
+        background: 'rgba(0,0,0,0.75)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1rem',
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="card-glass animate-bounce-in"
+        style={{
+          width: '100%',
+          maxWidth: '520px',
+          padding: '1.75rem',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '1.5rem',
+          }}
+        >
+          <h2 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
+            {title}
+          </h2>
+          <button
+            onClick={onClose}
+            className="btn btn-secondary btn-icon"
+            aria-label="Cerrar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main Component ────────────────────────────────────── */
+
+export default function DashboardClient({ profile }: Props) {
+  const supabase = createClient();
+
+  /* Tab */
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+
+  /* Date Filter */
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+
+  /* Daily Verse */
+  const [versiculo, setVersiculo] = useState<{ texto: string; referencia: string } | null>(null);
+
+  useEffect(() => {
+    setVersiculo(getRandomVersiculo());
+  }, []);
+
+  /* Members */
+  const [members, setMembers] = useState<Member[]>([]);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [loadingMembers, setLoadingMembers] = useState(true);
+
+  /* Profiles (users) */
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+
+  /* Member modal */
+  const [memberModal, setMemberModal] = useState<{
+    open: boolean;
+    member?: Member;
+  }>({ open: false });
+  const emptyMemberForm = {
+    full_name: '',
+    age: '',
+    city: '',
+    address: '',
+    phone: '',
+    status: 'Nuevo' as Member['status'],
+  };
+  const [memberForm, setMemberForm] = useState(emptyMemberForm);
+  const [savingMember, setSavingMember] = useState(false);
+  const [memberError, setMemberError] = useState('');
+
+  /* User modal */
+  const [userModal, setUserModal] = useState(false);
+  const emptyUserForm = {
+    username: '',
+    password: '',
+    full_name: '',
+    phone: '',
+    role: 'user' as Role,
+  };
+  const [userForm, setUserForm] = useState(emptyUserForm);
+  const [savingUser, setSavingUser] = useState(false);
+  const [userError, setUserError] = useState('');
+
+  /* Delete confirm */
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  /* Toast */
+  const [toast, setToast] = useState<{
+    msg: string;
+    type: 'success' | 'error';
+  } | null>(null);
+
+  function showToast(msg: string, type: 'success' | 'error' = 'success') {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  }
+
+  /* ── Data fetching ── */
+  const fetchMembers = useCallback(async () => {
+    setLoadingMembers(true);
+    const { data } = await supabase
+      .from('members')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+    setMembers(data ?? []);
+    setLoadingMembers(false);
+  }, [supabase]);
+
+  const fetchProfiles = useCallback(async () => {
+    if (profile.role !== 'principal') return;
+    setLoadingProfiles(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+    setProfiles(data ?? []);
+    setLoadingProfiles(false);
+  }, [supabase, profile.role]);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
+
+  useEffect(() => {
+    if (activeTab === 'users') fetchProfiles();
+  }, [activeTab, fetchProfiles]);
+
+  /* ── Derived state ── */
+  const filteredMembers = members.filter((m) => {
+    // 1. Status and Search filter
+    const q = search.toLowerCase();
+    const matchSearch =
+      m.full_name.toLowerCase().includes(q) ||
+      (m.city ?? '').toLowerCase().includes(q) ||
+      (m.consolidator_name || '').toLowerCase().includes(q);
+    const matchStatus = filterStatus === 'all' || m.status === filterStatus;
+    
+    // 2. Date filter
+    let matchDate = true;
+    if (dateFilter !== 'all' && m.created_at) {
+      const created = new Date(m.created_at);
+      const now = new Date();
+      
+      if (dateFilter === 'today') {
+        matchDate = created.toDateString() === now.toDateString();
+      } else if (dateFilter === 'week') {
+        const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+        const startOfWeek = new Date(now.setDate(diff));
+        startOfWeek.setHours(0, 0, 0, 0);
+        matchDate = created >= startOfWeek;
+      } else if (dateFilter === 'month') {
+        matchDate = created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+      }
+    }
+
+    return matchSearch && matchStatus && matchDate;
+  });
+
+  const stats = {
+    total: members.length,
+    nuevo: members.filter((m) => m.status === 'Nuevo').length,
+    reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
+    visitante: members.filter((m) => m.status === 'Visitante').length,
+  };
+
+  const statusChartData = [
+    { name: 'Nuevos', value: stats.nuevo, color: STATUS_COLORS.Nuevo },
+    {
+      name: 'Reconciliados',
+      value: stats.reconciliado,
+      color: STATUS_COLORS.Reconciliado,
+    },
+    {
+      name: 'Visitantes',
+      value: stats.visitante,
+      color: STATUS_COLORS.Visitante,
+    },
+  ];
+
+  const cityChartData = Object.entries(
+    members.reduce(
+      (acc, m) => {
+        if (m.city) {
+          const city = normalizarCiudad(m.city);
+          acc[city] = (acc[city] ?? 0) + 1;
+        }
+        return acc;
+      },
+      {} as Record<string, number>
+    )
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, value]) => ({ name, value }));
+
+  /* ── Member CRUD ── */
+  function openAddMember() {
+    setMemberForm(emptyMemberForm);
+    setMemberError('');
+    setMemberModal({ open: true });
+  }
+
+  function openEditMember(member: Member) {
+    setMemberForm({
+      full_name: member.full_name,
+      age: member.age?.toString() ?? '',
+      city: member.city ?? '',
+      address: member.address ?? '',
+      phone: member.phone ?? '',
+      status: member.status,
+    });
+    setMemberError('');
+    setMemberModal({ open: true, member });
+  }
+
+  async function saveMember() {
+    if (!memberForm.full_name.trim()) {
+      setMemberError('El nombre completo es requerido.');
+      return;
+    }
+    setSavingMember(true);
+    setMemberError('');
+
+    const payload = {
+      full_name: memberForm.full_name.trim(),
+      age: memberForm.age ? parseInt(memberForm.age) : null,
+      city: memberForm.city ? normalizarCiudad(memberForm.city) : null,
+      address: memberForm.address || null,
+      phone: memberForm.phone || null,
+      status: memberForm.status,
+    };
+
+    try {
+      if (memberModal.member) {
+        const { error } = await supabase
+          .from('members')
+          .update(payload)
+          .eq('id', memberModal.member.id);
+        if (error) throw error;
+        showToast('Miembro actualizado correctamente.');
+      } else {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const { error } = await supabase.from('members').insert({
+          ...payload,
+          consolidator_id: user?.id,
+          consolidator_name: profile.full_name,
+        });
+        if (error) throw error;
+        showToast('Miembro registrado correctamente.');
+      }
+      setMemberModal({ open: false });
+      fetchMembers();
+    } catch (err: unknown) {
+      setMemberError(
+        err instanceof Error ? err.message : 'Error al guardar.'
+      );
+    } finally {
+      setSavingMember(false);
+    }
+  }
+
+  async function confirmDelete(id: string) {
+    const { error } = await supabase
+      .from('members')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) {
+      showToast('Error al eliminar el miembro.', 'error');
+    } else {
+      showToast('Miembro eliminado.');
+      fetchMembers();
+    }
+    setDeleteConfirm(null);
+  }
+
+  /* ── User management ── */
+  async function saveUser() {
+    if (!userForm.username || !userForm.password || !userForm.full_name) {
+      setUserError('Usuario, contraseña y nombre son requeridos.');
+      return;
+    }
+    setSavingUser(true);
+    setUserError('');
+    try {
+      await adminCreateUser(userForm);
+      showToast('Usuario creado exitosamente.');
+      setUserModal(false);
+      setUserForm(emptyUserForm);
+      fetchProfiles();
+    } catch (err: unknown) {
+      setUserError(
+        err instanceof Error ? err.message : 'Error al crear usuario.'
+      );
+    } finally {
+      setSavingUser(false);
+    }
+  }
+
+  async function updateRole(userId: string, role: Role) {
+    try {
+      await adminUpdateUserRole(userId, role);
+      showToast('Rol actualizado.');
+      fetchProfiles();
+    } catch {
+      showToast('Error al actualizar el rol.', 'error');
+    }
+  }
+
+  /* ── Tabs config ── */
+  const tabs = [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
+    { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    ...(profile.role === 'principal'
+      ? [
+          {
+            key: 'users' as ActiveTab,
+            icon: <Shield size={15} />,
+            label: 'Usuarios',
+          },
+        ]
+      : []),
+  ];
+
+  /* ══════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════ */
+  return (
+    <div className="app-layout">
+      {/* Toast */}
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+
+      {/* ── Sidebar (Desktop) ── */}
+      <aside className="sidebar hide-on-mobile" style={{ padding: '2rem 1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '3rem' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', border: '1px solid var(--border-gold)', background: '#000', flexShrink: 0 }}>
+            <img src="/logo.jpg" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+          <div>
+            <p className="font-cinzel" style={{ fontSize: '1rem', color: 'var(--text-primary)' }}>Avivamiento</p>
+            <p className="text-gold" style={{ fontSize: '0.7rem' }}>León de la Tribu de Judá</p>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: '2rem' }}>
+          <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.75rem' }}>Mi Perfil</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div className="avatar-placeholder" style={{ width: 40, height: 40, fontSize: '1rem' }}>
+              {profile.full_name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
+            </div>
+          </div>
+        </div>
+
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+          {tabs.map((t) => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)} className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`} style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}>
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        <form action={signOut} style={{ marginTop: 'auto' }}>
+            <button type="submit" className="btn btn-secondary" style={{ width: '100%', gap: '0.5rem' }}>
+            <LogOut size={16} />
+            Cerrar Sesión
+            </button>
+        </form>
+      </aside>
+
+      {/* ── Main ── */}
+      <main className="main-content">
+        {/* Mobile Header (Hidden on Desktop) */}
+        <div className="hide-on-desktop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div className="avatar-placeholder" style={{ width: 36, height: 36, fontSize: '0.9rem' }}>
+              {profile.full_name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
+            </div>
+          </div>
+          <form action={signOut}>
+            <button type="submit" className="btn btn-secondary btn-icon" style={{ width: 36, height: 36 }}>
+                <LogOut size={16} />
+            </button>
+          </form>
+        </div>
+
+        {/* Page title and Date Filter */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem' }}>
+          <div>
+            <h1
+              className="font-cinzel animate-slide-up"
+              style={{ fontSize: 'clamp(1.4rem, 3vw, 2rem)' }}
+            >
+              Panel de Control
+            </h1>
+            <p
+              className="text-muted animate-fade-in"
+              style={{ fontSize: '0.875rem', marginTop: '0.3rem' }}
+            >
+              Gestión de miembros y estadísticas de la congregación
+            </p>
+          </div>
+
+          <div className="animate-fade-in">
+            <select
+              className="form-select"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as any)}
+              style={{ padding: '0.6rem 2.5rem 0.6rem 1rem', fontSize: '0.85rem', width: 'auto', background: 'var(--bg-secondary)', border: '1px solid var(--border-gold)' }}
+            >
+              <option value="all">📅 Todos los tiempos</option>
+              <option value="today">📅 Hoy</option>
+              <option value="week">📅 Esta Semana</option>
+              <option value="month">📅 Este Mes</option>
+            </select>
+          </div>
+        </div>
+
+        {/* ── Home Tab ── */}
+        {activeTab === 'home' && (
+          <div className="animate-fade-in">
+            {versiculo && (
+              <div
+                className="card-glass"
+                style={{
+                  marginBottom: '2rem',
+                  padding: '1.5rem',
+                  textAlign: 'center',
+                  background: 'linear-gradient(145deg, rgba(20,20,20,0.8), rgba(0,0,0,0.4))',
+                  border: '1px solid var(--border-gold)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ position: 'absolute', top: '-10%', left: '-5%', opacity: 0.05 }}>
+                  <BookOpen size={120} />
+                </div>
+                <BookOpen size={24} style={{ color: 'var(--gold-primary)', margin: '0 auto 1rem' }} />
+                <p className="font-cinzel" style={{ fontSize: '1.1rem', fontStyle: 'italic', color: 'var(--text-primary)', marginBottom: '0.5rem', position: 'relative', zIndex: 1 }}>
+                  "{versiculo.texto}"
+                </p>
+                <p style={{ fontSize: '0.8rem', color: 'var(--gold-light)', fontWeight: 600, position: 'relative', zIndex: 1 }}>
+                  {versiculo.referencia}
+                </p>
+              </div>
+            )}
+
+            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Resumen de Registros</h2>
+            <div className="grid-4" style={{ marginBottom: '2rem' }}>
+              <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
+              <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
+              <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
+              <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
+            </div>
+          </div>
+        )}
+
+
+        {/* ── Members Tab ── */}
+        {activeTab === 'members' && (
+          <div className="animate-fade-in">
+            {/* Toolbar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                marginBottom: '1rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div
+                style={{ flex: 1, minWidth: '200px', position: 'relative' }}
+              >
+                <Search
+                  size={15}
+                  style={{
+                    position: 'absolute',
+                    left: '1rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--text-muted)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  className="form-input"
+                  id="member-search"
+                  type="text"
+                  placeholder="Buscar por nombre, ciudad o consolidador..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ paddingLeft: '2.5rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {['all', 'Nuevo', 'Reconciliado', 'Visitante'].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setFilterStatus(s)}
+                    className={`btn ${
+                      filterStatus === s ? 'btn-primary' : 'btn-secondary'
+                    }`}
+                    style={{
+                      padding: '0.55rem 0.85rem',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    {s === 'all' ? 'Todos' : s}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={openAddMember}
+                className="btn btn-primary"
+                id="add-member-btn"
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <Plus size={16} />
+                Agregar Miembro
+              </button>
+            </div>
+
+            {/* Table */}
+            {loadingMembers ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '5rem',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <Loader2
+                  size={32}
+                  style={{
+                    margin: '0 auto 1rem',
+                    animation: 'spin 1s linear infinite',
+                    display: 'block',
+                  }}
+                />
+                <p>Cargando miembros...</p>
+              </div>
+            ) : filteredMembers.length === 0 ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '5rem',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <Users
+                  size={48}
+                  style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }}
+                />
+                <p>No se encontraron miembros.</p>
+                {search && (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ marginTop: '1rem', fontSize: '0.85rem' }}
+                    onClick={() => setSearch('')}
+                  >
+                    Limpiar búsqueda
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Estado</th>
+                      <th>Ciudad</th>
+                      <th>Teléfono</th>
+                      <th>Consolidador</th>
+                      <th>Registrado</th>
+                      <th style={{ textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMembers.map((member) => (
+                      <tr key={member.id}>
+                        <td>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.65rem',
+                            }}
+                          >
+                            <div
+                              className="avatar-placeholder"
+                              style={{
+                                width: 32,
+                                height: 32,
+                                fontSize: '0.75rem',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {member.full_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span style={{ fontWeight: 600 }}>
+                              {member.full_name}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`badge badge-${member.status.toLowerCase()}`}
+                          >
+                            {member.status}
+                          </span>
+                        </td>
+                        <td className="text-secondary">
+                          {member.city ?? '—'}
+                        </td>
+                        <td className="text-secondary">
+                          {member.phone ?? '—'}
+                        </td>
+                        <td className="text-secondary">
+                          {member.consolidator_name}
+                        </td>
+                        <td
+                          className="text-muted"
+                          style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                          suppressHydrationWarning
+                        >
+                          {formatearFecha(member.created_at)}
+                        </td>
+                        <td>
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '0.4rem',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <button
+                              onClick={() => openEditMember(member)}
+                              className="btn btn-secondary btn-icon"
+                              title="Editar"
+                              aria-label="Editar miembro"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+
+                            {deleteConfirm === member.id ? (
+                              <>
+                                <button
+                                  onClick={() => confirmDelete(member.id)}
+                                  className="btn btn-danger btn-icon"
+                                  title="Confirmar eliminación"
+                                >
+                                  <Check size={13} />
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirm(null)}
+                                  className="btn btn-secondary btn-icon"
+                                  title="Cancelar"
+                                >
+                                  <X size={13} />
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setDeleteConfirm(member.id)}
+                                className="btn btn-danger btn-icon"
+                                title="Eliminar"
+                                aria-label="Eliminar miembro"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!loadingMembers && members.length > 0 && (
+              <p
+                className="text-muted"
+                style={{
+                  fontSize: '0.8rem',
+                  marginTop: '0.75rem',
+                  textAlign: 'right',
+                }}
+              >
+                Mostrando {filteredMembers.length} de {members.length} miembros
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Reports Tab ── */}
+        {activeTab === 'reports' && (
+          <div
+            className="animate-fade-in"
+            style={{
+              display: 'grid',
+              gap: '1.5rem',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+            }}
+          >
+            {/* Status pie chart */}
+            <div className="card" style={{ padding: '1.5rem' }}>
+              <h3
+                className="font-cinzel"
+                style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+              >
+                Distribución por Estado
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={statusChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={65}
+                    outerRadius={105}
+                    paddingAngle={4}
+                    dataKey="value"
+                    label={({ name, value }) => `${name}: ${value}`}
+                    labelLine={false}
+                  >
+                    {statusChartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border-gold)',
+                      borderRadius: '8px',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                  <Legend
+                    formatter={(v) => (
+                      <span
+                        style={{
+                          color: 'var(--text-secondary)',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        {v}
+                      </span>
+                    )}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* City bar chart */}
+            <div className="card" style={{ padding: '1.5rem' }}>
+              <h3
+                className="font-cinzel"
+                style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+              >
+                Miembros por Ciudad
+              </h3>
+              {cityChartData.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    color: 'var(--text-muted)',
+                    padding: '4rem 0',
+                  }}
+                >
+                  <MapPin
+                    size={36}
+                    style={{
+                      margin: '0 auto 0.75rem',
+                      opacity: 0.3,
+                      display: 'block',
+                    }}
+                  />
+                  <p>Sin datos de ciudades registrados</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={cityChartData} layout="vertical">
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="rgba(255,255,255,0.05)"
+                    />
+                    <XAxis
+                      type="number"
+                      stroke="var(--text-muted)"
+                      tick={{ fontSize: 11 }}
+                      allowDecimals={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={90}
+                      stroke="var(--text-muted)"
+                      tick={{ fontSize: 11 }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-gold)',
+                        borderRadius: '8px',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                      }}
+                    />
+                    <Bar
+                      dataKey="value"
+                      fill="var(--gold-primary)"
+                      radius={[0, 4, 4, 0]}
+                      name="Miembros"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Users Tab (principal only) ── */}
+        {activeTab === 'users' && profile.role === 'principal' && (
+          <div className="animate-fade-in">
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginBottom: '1rem',
+              }}
+            >
+              <button
+                onClick={() => {
+                  setUserForm(emptyUserForm);
+                  setUserError('');
+                  setUserModal(true);
+                }}
+                className="btn btn-primary"
+                id="add-user-btn"
+              >
+                <UserPlus size={16} />
+                Nuevo Usuario
+              </button>
+            </div>
+
+            {loadingProfiles ? (
+              <div
+                style={{
+                  textAlign: 'center',
+                  padding: '5rem',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                <Loader2
+                  size={32}
+                  style={{
+                    margin: '0 auto 1rem',
+                    animation: 'spin 1s linear infinite',
+                    display: 'block',
+                  }}
+                />
+                <p>Cargando usuarios...</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {profiles.map((p) => (
+                  <div
+                    key={p.id}
+                    className="card"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '1rem',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.85rem',
+                      }}
+                    >
+                      <div
+                        className="avatar-placeholder"
+                        style={{ width: 44, height: 44, fontSize: '1rem' }}
+                      >
+                        {p.full_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p style={{ fontWeight: 600, marginBottom: '0.1rem' }}>
+                          {p.full_name}
+                        </p>
+                        <p className="text-gold" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                          @{p.username}
+                        </p>
+                        {p.phone && (
+                          <p
+                            className="text-muted"
+                            style={{ fontSize: '0.8rem' }}
+                          >
+                            {p.phone}
+                          </p>
+                        )}
+                        <p
+                          className="text-muted"
+                          style={{ fontSize: '0.75rem' }}
+                          suppressHydrationWarning
+                        >
+                          Desde {formatearFecha(p.created_at)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span className={`badge badge-${p.role}`}>
+                        {p.role === 'principal' ? (
+                          <Crown size={10} style={{ marginRight: 3 }} />
+                        ) : p.role === 'admin' ? (
+                          <Shield size={10} style={{ marginRight: 3 }} />
+                        ) : (
+                          <User size={10} style={{ marginRight: 3 }} />
+                        )}
+                        {ROLE_LABELS[p.role]}
+                      </span>
+
+                      {p.id !== profile.id && (
+                        <select
+                          className="form-select"
+                          style={{
+                            width: 'auto',
+                            padding: '0.45rem 2.2rem 0.45rem 0.75rem',
+                            fontSize: '0.82rem',
+                          }}
+                          value={p.role}
+                          onChange={(e) =>
+                            updateRole(p.id, e.target.value as Role)
+                          }
+                          aria-label={`Cambiar rol de ${p.full_name}`}
+                        >
+                          <option value="principal">Principal</option>
+                          <option value="admin">Administrador</option>
+                          <option value="user">Consolidador</option>
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* ── Member Modal ── */}
+      {memberModal.open && (
+        <Modal
+          title={memberModal.member ? 'Editar Miembro' : 'Agregar Miembro'}
+          onClose={() => setMemberModal({ open: false })}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Nombre completo *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Nombre y apellido"
+                value={memberForm.full_name}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, full_name: e.target.value }))
+                }
+                autoFocus
+              />
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Edad</label>
+                <input
+                  className="form-input"
+                  type="number"
+                  placeholder="25"
+                  min="1"
+                  max="120"
+                  value={memberForm.age}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, age: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Estado</label>
+                <select
+                  className="form-select"
+                  value={memberForm.status}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({
+                      ...f,
+                      status: e.target.value as Member['status'],
+                    }))
+                  }
+                >
+                  <option>Nuevo</option>
+                  <option>Reconciliado</option>
+                  <option>Visitante</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Ciudad</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Porlamar"
+                value={memberForm.city}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, city: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Dirección</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Urb. Las Palmas, casa #12..."
+                value={memberForm.address}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, address: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Teléfono</label>
+              <input
+                className="form-input"
+                type="tel"
+                placeholder="0414-000-0000"
+                value={memberForm.phone}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, phone: e.target.value }))
+                }
+              />
+            </div>
+
+            {memberError && (
+              <p className="form-error">{memberError}</p>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                justifyContent: 'flex-end',
+                marginTop: '0.5rem',
+              }}
+            >
+              <button
+                onClick={() => setMemberModal({ open: false })}
+                className="btn btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveMember}
+                className="btn btn-primary"
+                disabled={savingMember}
+                id="save-member-btn"
+              >
+                {savingMember ? 'Guardando...' : memberModal.member ? 'Guardar cambios' : 'Registrar'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── User Modal ── */}
+      {userModal && (
+        <Modal title="Crear Nuevo Usuario" onClose={() => setUserModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Nombre completo *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Juan Pérez"
+                value={userForm.full_name}
+                onChange={(e) =>
+                  setUserForm((f) => ({ ...f, full_name: e.target.value }))
+                }
+                autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Usuario *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="juan_perez"
+                value={userForm.username}
+                onChange={(e) =>
+                  setUserForm((f) => ({ ...f, username: e.target.value.toLowerCase().replace(/\s/g, '_') }))
+                }
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Contraseña *</label>
+              <input
+                className="form-input"
+                type="password"
+                placeholder="Mínimo 6 caracteres"
+                value={userForm.password}
+                onChange={(e) =>
+                  setUserForm((f) => ({ ...f, password: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Teléfono</label>
+              <input
+                className="form-input"
+                type="tel"
+                placeholder="0414-000-0000"
+                value={userForm.phone}
+                onChange={(e) =>
+                  setUserForm((f) => ({ ...f, phone: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Rol</label>
+              <select
+                className="form-select"
+                value={userForm.role}
+                onChange={(e) =>
+                  setUserForm((f) => ({
+                    ...f,
+                    role: e.target.value as Role,
+                  }))
+                }
+              >
+                <option value="user">Consolidador</option>
+                <option value="admin">Administrador</option>
+                <option value="principal">Principal</option>
+              </select>
+            </div>
+
+            {userError && <p className="form-error">{userError}</p>}
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                justifyContent: 'flex-end',
+                marginTop: '0.5rem',
+              }}
+            >
+              <button
+                onClick={() => setUserModal(false)}
+                className="btn btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveUser}
+                className="btn btn-primary"
+                disabled={savingUser}
+                id="save-user-btn"
+              >
+                {savingUser ? 'Creando...' : 'Crear usuario'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {/* ── Bottom Navigation (Mobile Only) ── */}
+      <nav className="bottom-nav hide-on-desktop">
+        {tabs.map((t) => (
+          <div
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.2rem',
+              color: activeTab === t.key ? 'var(--gold-primary)' : 'var(--text-muted)',
+              cursor: 'pointer'
+            }}
+          >
+            {t.icon}
+            <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>{t.label}</span>
+          </div>
+        ))}
+      </nav>
+    </div>
+  );
+}
