@@ -20,6 +20,7 @@ export interface Member {
   address: string | null;
   phone: string | null;
   status: 'Nuevo' | 'Reconciliado' | 'Visitante';
+  house_group_id: string | null;
   consolidator_id: string | null;
   consolidator_name: string;
   created_at: string;
@@ -38,10 +39,19 @@ export interface HouseGroup {
   created_at: string;
 }
 
-export interface Attendance {
+export interface HouseGroupMeeting {
   id: string;
   house_group_id: string;
+  topic: string | null;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  created_at: string;
+}
+
+export interface Attendance {
+  id: string;
+  meeting_id: string;
   member_id: string;
-  meeting_date: string;
   created_at: string;
 }

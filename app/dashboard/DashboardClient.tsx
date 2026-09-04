@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
-import type { Profile, Member, Role, HouseGroup, Attendance } from '@/lib/types';
+import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
 import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
 import {
   BarChart,
@@ -236,6 +236,7 @@ export default function DashboardClient({ profile }: Props) {
   /* Casas de Dios y Asistencias */
   const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
   const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [houseGroupMeetings, setHouseGroupMeetings] = useState<HouseGroupMeeting[]>([]);
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
@@ -250,6 +251,7 @@ export default function DashboardClient({ profile }: Props) {
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
+    house_group_id: '',
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
@@ -284,6 +286,26 @@ export default function DashboardClient({ profile }: Props) {
   const [casaForm, setCasaForm] = useState(emptyCasaForm);
   const [savingCasa, setSavingCasa] = useState(false);
   const [casaError, setCasaError] = useState('');
+
+  /* Service Control Modal */
+  const [serviceModal, setServiceModal] = useState<{ open: boolean; houseGroupId?: string }>({ open: false });
+  const emptyServiceForm = {
+    topic: '',
+    date: new Date().toISOString().split('T')[0],
+    start_time: '',
+    end_time: '',
+    attendeeIds: [] as string[],
+  };
+  const [serviceForm, setServiceForm] = useState(emptyServiceForm);
+  const [savingService, setSavingService] = useState(false);
+  const [serviceError, setServiceError] = useState('');
+  const [serviceSearch, setServiceSearch] = useState('');
+
+  /* Fast New Member Modal inside Service */
+  const [fastNewMemberOpen, setFastNewMemberOpen] = useState(false);
+  const emptyFastMember = { full_name: '', phone: '' };
+  const [fastMemberForm, setFastMemberForm] = useState(emptyFastMember);
+  const [savingFastMember, setSavingFastMember] = useState(false);
   const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
 
   /* Toast */
@@ -327,12 +349,14 @@ export default function DashboardClient({ profile }: Props) {
 
   const fetchCasasData = useCallback(async () => {
     try {
-      const [{ data: hgData }, { data: attData }] = await Promise.all([
+      const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
         supabase.from('house_groups').select('*'),
-        supabase.from('attendances').select('*')
+        supabase.from('attendances').select('*'),
+        supabase.from('house_group_meetings').select('*')
       ]);
       setHouseGroups(hgData ?? []);
       setAttendances(attData ?? []);
+      setHouseGroupMeetings(meetData ?? []);
     } catch (e) {
       // Ignorar de forma silenciosa si las tablas no existen todavía
     }
@@ -451,7 +475,8 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Casas de Dios Data */
   const casasChartData = houseGroups.map(hg => {
-    const hgAttendances = attendances.filter(a => a.house_group_id === hg.id);
+    const hgMeetings = houseGroupMeetings.filter(m => m.house_group_id === hg.id).map(m => m.id);
+    const hgAttendances = attendances.filter(a => hgMeetings.includes(a.meeting_id));
     return {
       name: hg.name,
       'Asistencias': hgAttendances.length,
@@ -476,6 +501,7 @@ export default function DashboardClient({ profile }: Props) {
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
+      house_group_id: member.house_group_id ?? '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -497,6 +523,7 @@ export default function DashboardClient({ profile }: Props) {
       address: memberForm.address || null,
       phone: memberForm.phone || null,
       status: memberForm.status,
+      house_group_id: memberForm.house_group_id || null,
     };
 
     try {
@@ -634,16 +661,92 @@ export default function DashboardClient({ profile }: Props) {
     setDeleteCasaConfirm(null);
   }
 
+  /* ── Service Control ── */
+  async function saveServiceControl() {
+    if (!serviceForm.topic.trim()) {
+      setServiceError('El título de la enseñanza es requerido.');
+      return;
+    }
+    if (!serviceForm.start_time || !serviceForm.end_time) {
+      setServiceError('Las horas de inicio y fin son requeridas.');
+      return;
+    }
+    setSavingService(true);
+    setServiceError('');
+
+    try {
+      const { data: meetingData, error: meetingError } = await supabase
+        .from('house_group_meetings')
+        .insert({
+          house_group_id: serviceModal.houseGroupId,
+          topic: serviceForm.topic.trim(),
+          date: serviceForm.date,
+          start_time: serviceForm.start_time,
+          end_time: serviceForm.end_time,
+        })
+        .select('id')
+        .single();
+      
+      if (meetingError) throw meetingError;
+
+      if (serviceForm.attendeeIds.length > 0) {
+        const attendancePayload = serviceForm.attendeeIds.map(memberId => ({
+          meeting_id: meetingData.id,
+          member_id: memberId,
+        }));
+        
+        const { error: attError } = await supabase
+          .from('attendances')
+          .insert(attendancePayload);
+          
+        if (attError) throw attError;
+      }
+      
+      showToast('Control de servicio guardado correctamente.');
+      setServiceModal({ open: false });
+      fetchCasasData();
+    } catch (err: any) {
+      console.error(err);
+      setServiceError(err.message || 'Error al guardar el control de servicio.');
+    } finally {
+      setSavingService(false);
+    }
+  }
+
+  async function saveFastMember() {
+    if (!fastMemberForm.full_name.trim()) return;
+    setSavingFastMember(true);
+    try {
+      const { data: inserted, error } = await supabase.from('members').insert({
+        full_name: fastMemberForm.full_name.trim(),
+        phone: fastMemberForm.phone || null,
+        status: 'Nuevo',
+        house_group_id: serviceModal.houseGroupId,
+      }).select('id').single();
+
+      if (error) throw error;
+      
+      setServiceForm(prev => ({
+        ...prev,
+        attendeeIds: [...prev.attendeeIds, inserted.id]
+      }));
+      
+      setFastNewMemberOpen(false);
+      setFastMemberForm(emptyFastMember);
+      fetchMembers();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingFastMember(false);
+    }
+  }
+
   /* ── Tabs config ── */
   const tabs = [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    ...(profile.role === 'principal' || profile.role === 'admin'
-      ? [
-          { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Grupos' },
-        ]
-      : []),
+    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: profile.role === 'user' ? 'Mis Grupos' : 'Grupos' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
@@ -1262,42 +1365,53 @@ export default function DashboardClient({ profile }: Props) {
         )}
 
         {/* ── Casas Tab ── */}
-        {activeTab === 'casas' && (profile.role === 'principal' || profile.role === 'admin') && (
+        {activeTab === 'casas' && (
           <div className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-              <button
-                onClick={() => {
-                  setCasaForm(emptyCasaForm);
-                  setCasaError('');
-                  setCasaModal({ open: true });
-                }}
-                className="btn btn-primary"
-              >
-                <Plus size={16} />
-                Nueva Casa de Dios
-              </button>
-            </div>
-
-            {houseGroups.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
-                <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                <p>No hay Casas de Dios registradas.</p>
+            {profile.role !== 'user' && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                <button
+                  onClick={() => {
+                    setCasaForm(emptyCasaForm);
+                    setCasaError('');
+                    setCasaModal({ open: true });
+                  }}
+                  className="btn btn-primary"
+                >
+                  <Plus size={16} />
+                  Nueva Casa de Dios
+                </button>
               </div>
-            ) : (
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Nombre</th>
-                      <th>Dirección</th>
-                      <th>Líder Asignado</th>
-                      <th>Registrada</th>
-                      <th style={{ textAlign: 'center' }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {houseGroups.map((casa) => {
-                      const leader = profiles.find((p) => p.id === casa.leader_id);
+            )}
+
+            {(() => {
+              const visibleHouseGroups = profile.role === 'user'
+                ? houseGroups.filter(hg => hg.leader_id === profile.id)
+                : houseGroups;
+              
+              if (visibleHouseGroups.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                    <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                    <p>No hay Casas de Dios registradas.</p>
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Dirección</th>
+                        <th>Líder Asignado</th>
+                        <th>Registrada</th>
+                        <th style={{ textAlign: 'center' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleHouseGroups.map((casa) => {
+                        const leader = profiles.find((p) => p.id === casa.leader_id);
                       return (
                         <tr key={casa.id}>
                           <td><strong>{casa.name}</strong></td>
@@ -1310,43 +1424,61 @@ export default function DashboardClient({ profile }: Props) {
                             <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
                               <button
                                 onClick={() => {
-                                  setCasaForm({
-                                    name: casa.name,
-                                    address: casa.address || '',
-                                    leader_id: casa.leader_id || '',
-                                  });
-                                  setCasaError('');
-                                  setCasaModal({ open: true, casa });
+                                  setServiceForm(emptyServiceForm);
+                                  setServiceSearch('');
+                                  setServiceError('');
+                                  setServiceModal({ open: true, houseGroupId: casa.id });
                                 }}
-                                className="btn btn-secondary btn-icon"
-                                title="Editar"
+                                className="btn btn-primary btn-icon"
+                                title="Control de Servicio"
                               >
-                                <Edit2 size={13} />
+                                <BookOpen size={13} />
                               </button>
-
-                              {deleteCasaConfirm === casa.id ? (
+                              
+                              {profile.role !== 'user' && (
                                 <>
-                                  <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
-                                    <Check size={13} />
+                                  <button
+                                    onClick={() => {
+                                      setCasaForm({
+                                        name: casa.name,
+                                        address: casa.address || '',
+                                        leader_id: casa.leader_id || '',
+                                      });
+                                      setCasaError('');
+                                      setCasaModal({ open: true, casa });
+                                    }}
+                                    className="btn btn-secondary btn-icon"
+                                    title="Editar"
+                                  >
+                                    <Edit2 size={13} />
                                   </button>
-                                  <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
-                                    <X size={13} />
-                                  </button>
+
+                                  {deleteCasaConfirm === casa.id ? (
+                                    <>
+                                      <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
+                                        <Check size={13} />
+                                      </button>
+                                      <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
+                                        <X size={13} />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
                                 </>
-                              ) : (
-                                <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
-                                  <Trash2 size={13} />
-                                </button>
                               )}
                             </div>
                           </td>
                         </tr>
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1561,6 +1693,24 @@ export default function DashboardClient({ profile }: Props) {
                   <option>Visitante</option>
                 </select>
               </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Casa de Dios</label>
+              <select
+                className="form-select"
+                value={memberForm.house_group_id}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
+                }
+              >
+                <option value="">Sin asignar</option>
+                {houseGroups.map((hg) => (
+                  <option key={hg.id} value={hg.id}>
+                    {hg.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="form-group">
@@ -1790,6 +1940,193 @@ export default function DashboardClient({ profile }: Props) {
               </button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* ── Service Control Modal ── */}
+      {serviceModal.open && (
+        <Modal title="Control de Servicio" onClose={() => setServiceModal({ open: false })}>
+          {fastNewMemberOpen ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--gold-primary)' }}>Registrar Nuevo Asistente</h3>
+              <div className="form-group">
+                <label className="form-label">Nombre Completo *</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. Juan Pérez"
+                  value={fastMemberForm.full_name}
+                  onChange={(e) => setFastMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Teléfono (Opcional)</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. 0414-1234567"
+                  value={fastMemberForm.phone}
+                  onChange={(e) => setFastMemberForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button onClick={() => setFastNewMemberOpen(false)} className="btn btn-secondary">
+                  Atrás
+                </button>
+                <button onClick={saveFastMember} className="btn btn-primary" disabled={savingFastMember || !fastMemberForm.full_name.trim()}>
+                  {savingFastMember ? 'Guardando...' : 'Crear y Añadir'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="form-group">
+                <label className="form-label">Título de la enseñanza *</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. El poder de la fe"
+                  value={serviceForm.topic}
+                  onChange={(e) => setServiceForm(f => ({ ...f, topic: e.target.value }))}
+                />
+              </div>
+              
+              <div className="grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Fecha *</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={serviceForm.date}
+                    onChange={(e) => setServiceForm(f => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Hora Inicio *</label>
+                  <input
+                    className="form-input"
+                    type="time"
+                    value={serviceForm.start_time}
+                    onChange={(e) => setServiceForm(f => ({ ...f, start_time: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Hora Fin *</label>
+                  <input
+                    className="form-input"
+                    type="time"
+                    value={serviceForm.end_time}
+                    onChange={(e) => setServiceForm(f => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="divider" style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.5rem 0' }} />
+              
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Registro de Asistentes</label>
+                  <button 
+                    onClick={() => {
+                      setFastMemberForm(emptyFastMember);
+                      setFastNewMemberOpen(true);
+                    }} 
+                    className="btn btn-secondary" 
+                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                  >
+                    + Nuevo Asistente
+                  </button>
+                </div>
+                
+                <div className="form-group">
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Buscar participante..."
+                    value={serviceSearch}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto', 
+                  border: '1px solid var(--border-subtle)', 
+                  borderRadius: 'var(--border-radius)',
+                  padding: '0.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  {(() => {
+                    const houseMembers = members.filter(m => m.house_group_id === serviceModal.houseGroupId);
+                    const otherMembers = members.filter(m => m.house_group_id !== serviceModal.houseGroupId);
+                    
+                    let filtered = houseMembers.concat(otherMembers);
+                    if (serviceSearch.trim()) {
+                      const s = serviceSearch.toLowerCase();
+                      filtered = filtered.filter(m => m.full_name.toLowerCase().includes(s));
+                    }
+                    
+                    if (filtered.length === 0) {
+                      return <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>No se encontraron miembros.</p>;
+                    }
+
+                    return filtered.map(m => {
+                      const isSelected = serviceForm.attendeeIds.includes(m.id);
+                      return (
+                        <label 
+                          key={m.id} 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.75rem', 
+                            padding: '0.5rem',
+                            borderRadius: '4px',
+                            background: isSelected ? 'var(--bg-card-hover)' : 'transparent',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            onChange={(e) => {
+                              setServiceForm(prev => {
+                                const newIds = e.target.checked 
+                                  ? [...prev.attendeeIds, m.id]
+                                  : prev.attendeeIds.filter(id => id !== m.id);
+                                return { ...prev, attendeeIds: newIds };
+                              });
+                            }}
+                            style={{ width: '1.2rem', height: '1.2rem', accentColor: 'var(--gold-primary)' }}
+                          />
+                          <span style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{m.full_name}</span>
+                          {m.house_group_id === serviceModal.houseGroupId && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)', background: 'var(--border-gold)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Asociado</span>
+                          )}
+                        </label>
+                      );
+                    });
+                  })()}
+                </div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Total seleccionados: <strong>{serviceForm.attendeeIds.length}</strong>
+                </div>
+              </div>
+
+              {serviceError && <p className="form-error">{serviceError}</p>}
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button onClick={() => setServiceModal({ open: false })} className="btn btn-secondary">
+                  Cancelar
+                </button>
+                <button onClick={saveServiceControl} className="btn btn-primary" disabled={savingService}>
+                  {savingService ? 'Guardando...' : 'Guardar Control'}
+                </button>
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 

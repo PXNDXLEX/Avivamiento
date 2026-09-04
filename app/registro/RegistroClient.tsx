@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
-import type { Profile, Member } from '@/lib/types';
+import type { Profile, Member, HouseGroup } from '@/lib/types';
 import { normalizarCiudad, formatearFecha, getRandomVersiculo } from '@/lib/utils';
 import {
   LogOut,
@@ -40,6 +40,7 @@ export default function RegistroClient({ profile }: Props) {
   const supabase = createClient();
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [versiculo, setVersiculo] = useState({ texto: '', referencia: '' });
   const [mounted, setMounted] = useState(false);
@@ -58,6 +59,7 @@ export default function RegistroClient({ profile }: Props) {
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
+    house_group_id: '',
   };
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -79,6 +81,11 @@ export default function RegistroClient({ profile }: Props) {
     setTimeout(() => setToast(null), 3500);
   }
 
+  const fetchHouseGroups = useCallback(async () => {
+    const { data } = await supabase.from('house_groups').select('*').order('name');
+    if (data) setHouseGroups(data);
+  }, [supabase]);
+
   /* Fetch own members */
   const fetchMembers = useCallback(async () => {
     setLoading(true);
@@ -94,7 +101,8 @@ export default function RegistroClient({ profile }: Props) {
 
   useEffect(() => {
     fetchMembers();
-  }, [fetchMembers]);
+    fetchHouseGroups();
+  }, [fetchMembers, fetchHouseGroups]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -112,6 +120,7 @@ export default function RegistroClient({ profile }: Props) {
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
+      house_group_id: member.house_group_id ?? '',
     });
     setEditingId(member.id);
     setShowFormModal(true);
@@ -136,6 +145,7 @@ export default function RegistroClient({ profile }: Props) {
       address: form.address || null,
       phone: form.phone || null,
       status: form.status,
+      house_group_id: form.house_group_id || null,
     };
 
     try {
@@ -236,6 +246,25 @@ export default function RegistroClient({ profile }: Props) {
             <option>Visitante</option>
           </select>
         </div>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="house_group_id" className="form-label">Casa de Dios</label>
+        <select
+          id="house_group_id"
+          className="form-select"
+          value={form.house_group_id}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, house_group_id: e.target.value }))
+          }
+        >
+          <option value="">Sin asignar</option>
+          {houseGroups.map((hg) => (
+            <option key={hg.id} value={hg.id}>
+              {hg.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="grid-2">
