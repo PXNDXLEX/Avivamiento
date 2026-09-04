@@ -54,12 +54,41 @@
 }
 
 /* ========================================
+   LIGHT THEME (Cream)
+   ======================================== */
+html.light {
+  --bg-primary: #FDFBF7;
+  --bg-secondary: #F4F1E9;
+  --bg-tertiary: #EBE6DA;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F9F7F1;
+
+  --gold-primary: #B58F3B;
+  --gold-light: #C9A84C;
+  --gold-dark: #8F6F2C;
+
+  --text-primary: #2C2A26;
+  --text-secondary: #5C5850;
+  --text-muted: #8A857A;
+  --text-gold: #B58F3B;
+
+  --border-gold: rgba(181, 143, 59, 0.4);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+
+  --shadow-gold: 0 4px 15px rgba(181, 143, 59, 0.15);
+  --shadow-gold-strong: 0 4px 25px rgba(181, 143, 59, 0.3);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --shadow-deep: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================
    RESET & BASE
    ======================================== */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
 }
 
 html {

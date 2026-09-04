@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ThemeToggle from './components/ThemeToggle';
 
 export const metadata: Metadata = {
   title: 'Avivamiento León de la Tribu de Judá',
@@ -14,7 +15,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        {children}
+        <ThemeToggle />
+      </body>
     </html>
   );
 }

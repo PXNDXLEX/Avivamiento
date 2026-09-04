@@ -33,9 +33,9 @@ export async function signOut() {
   redirect('/login');
 }
 
-/* ─── Guard: solo principal ─────────────────────────────── */
+/* ─── Guard: admin o principal ─────────────────────────────── */
 
-async function assertPrincipal() {
+async function assertAdminOrPrincipal() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -48,7 +48,9 @@ async function assertPrincipal() {
     .eq('id', user.id)
     .single();
 
-  if (profile?.role !== 'principal') throw new Error('Sin permisos suficientes');
+  if (profile?.role !== 'principal' && profile?.role !== 'admin') {
+    throw new Error('Sin permisos suficientes');
+  }
 }
 
 /* ─── USUARIOS (solo principal) ─────────────────────────── */
@@ -60,7 +62,7 @@ export async function adminCreateUser(data: {
   phone: string;
   role: Role;
 }) {
-  await assertPrincipal();
+  await assertAdminOrPrincipal();
 
   const admin = createAdminClient();
 
@@ -87,7 +89,7 @@ export async function adminCreateUser(data: {
 }
 
 export async function adminUpdateUserRole(userId: string, role: Role) {
-  await assertPrincipal();
+  await assertAdminOrPrincipal();
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -96,5 +98,50 @@ export async function adminUpdateUserRole(userId: string, role: Role) {
     .eq('id', userId);
 
   if (error) throw new Error(error.message);
+  revalidatePath('/dashboard');
+}
+
+export async function adminUpdateUser(
+  userId: string,
+  data: {
+    username?: string;
+    password?: string;
+    full_name?: string;
+    phone?: string;
+    role?: Role;
+  }
+) {
+  await assertAdminOrPrincipal();
+
+  const admin = createAdminClient();
+
+  // Update Auth if needed
+  const authPayload: { email?: string; password?: string } = {};
+  if (data.username) authPayload.email = usernameToEmail(data.username);
+  if (data.password) authPayload.password = data.password;
+
+  if (Object.keys(authPayload).length > 0) {
+    const { error: authError } = await admin.auth.admin.updateUserById(
+      userId,
+      authPayload
+    );
+    if (authError) throw new Error(authError.message);
+  }
+
+  // Update profile
+  const profilePayload: any = {};
+  if (data.username) profilePayload.username = data.username.toLowerCase().trim();
+  if (data.full_name !== undefined) profilePayload.full_name = data.full_name;
+  if (data.phone !== undefined) profilePayload.phone = data.phone || null;
+  if (data.role) profilePayload.role = data.role;
+
+  if (Object.keys(profilePayload).length > 0) {
+    const { error: profileError } = await admin
+      .from('profiles')
+      .update(profilePayload)
+      .eq('id', userId);
+    if (profileError) throw new Error(profileError.message);
+  }
+
   revalidatePath('/dashboard');
 }

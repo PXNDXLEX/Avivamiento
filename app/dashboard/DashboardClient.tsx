@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { signOut, adminCreateUser, adminUpdateUserRole } from '@/app/actions';
+import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance } from '@/lib/types';
 import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
 import {
@@ -65,7 +65,7 @@ const ROLE_LABELS: Record<Role, string> = {
   user: 'Consolidador',
 };
 
-type ActiveTab = 'home' | 'members' | 'reports' | 'users';
+type ActiveTab = 'home' | 'members' | 'reports' | 'users' | 'casas';
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -246,6 +246,7 @@ export default function DashboardClient({ profile }: Props) {
     full_name: '',
     age: '',
     city: '',
+    municipio: '',
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
@@ -255,7 +256,7 @@ export default function DashboardClient({ profile }: Props) {
   const [memberError, setMemberError] = useState('');
 
   /* User modal */
-  const [userModal, setUserModal] = useState(false);
+  const [userModal, setUserModal] = useState<{ open: boolean; userId?: string }>({ open: false });
   const emptyUserForm = {
     username: '',
     password: '',
@@ -269,6 +270,21 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  /* Casa modal */
+  const [casaModal, setCasaModal] = useState<{
+    open: boolean;
+    casa?: HouseGroup;
+  }>({ open: false });
+  const emptyCasaForm = {
+    name: '',
+    address: '',
+    leader_id: '',
+  };
+  const [casaForm, setCasaForm] = useState(emptyCasaForm);
+  const [savingCasa, setSavingCasa] = useState(false);
+  const [casaError, setCasaError] = useState('');
+  const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
 
   /* Toast */
   const [toast, setToast] = useState<{
@@ -294,7 +310,7 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   const fetchProfiles = useCallback(async () => {
-    if (profile.role !== 'principal') return;
+    if (profile.role !== 'principal' && profile.role !== 'admin') return;
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -323,8 +339,8 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'users') fetchProfiles();
-    if (activeTab === 'reports') fetchCasasData();
+    if (activeTab === 'users' || activeTab === 'casas') fetchProfiles();
+    if (activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
 
   /* ── Derived state ── */
@@ -332,8 +348,9 @@ export default function DashboardClient({ profile }: Props) {
     // 1. Status and Search filter
     const q = search.toLowerCase();
     const matchSearch =
-      m.full_name.toLowerCase().includes(q) ||
       (m.city ?? '').toLowerCase().includes(q) ||
+      (m.municipio ?? '').toLowerCase().includes(q) ||
+      (m.phone ?? '').toLowerCase().includes(q) ||
       (m.consolidator_name || '').toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || m.status === filterStatus;
     
@@ -378,6 +395,21 @@ export default function DashboardClient({ profile }: Props) {
       color: STATUS_COLORS.Visitante,
     },
   ];
+
+  const municipioChartData = Object.entries(
+    filteredMembers.reduce((acc: Record<string, number>, m) => {
+      if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante') {
+        if (m.municipio) {
+          const municipio = normalizarCiudad(m.municipio);
+          acc[municipio] = (acc[municipio] ?? 0) + 1;
+        }
+      }
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([name, value]) => ({ name, value }));
 
   const cityChartData = Object.entries(
     members.reduce(
@@ -440,6 +472,7 @@ export default function DashboardClient({ profile }: Props) {
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       city: member.city ?? '',
+      municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
@@ -460,6 +493,7 @@ export default function DashboardClient({ profile }: Props) {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
       city: memberForm.city ? normalizarCiudad(memberForm.city) : null,
+      municipio: memberForm.municipio ? normalizarCiudad(memberForm.municipio) : null,
       address: memberForm.address || null,
       phone: memberForm.phone || null,
       status: memberForm.status,
@@ -512,21 +546,30 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── User management ── */
   async function saveUser() {
-    if (!userForm.username || !userForm.password || !userForm.full_name) {
-      setUserError('Usuario, contraseña y nombre son requeridos.');
+    if (!userModal.userId && (!userForm.username || !userForm.password || !userForm.full_name)) {
+      setUserError('Usuario, contraseña y nombre son requeridos para un nuevo usuario.');
+      return;
+    }
+    if (userModal.userId && (!userForm.username || !userForm.full_name)) {
+      setUserError('Usuario y nombre son requeridos para editar.');
       return;
     }
     setSavingUser(true);
     setUserError('');
     try {
-      await adminCreateUser(userForm);
-      showToast('Usuario creado exitosamente.');
-      setUserModal(false);
+      if (userModal.userId) {
+        await adminUpdateUser(userModal.userId, userForm);
+        showToast('Usuario actualizado exitosamente.');
+      } else {
+        await adminCreateUser(userForm);
+        showToast('Usuario creado exitosamente.');
+      }
+      setUserModal({ open: false });
       setUserForm(emptyUserForm);
       fetchProfiles();
     } catch (err: unknown) {
       setUserError(
-        err instanceof Error ? err.message : 'Error al crear usuario.'
+        err instanceof Error ? err.message : 'Error al guardar usuario.'
       );
     } finally {
       setSavingUser(false);
@@ -543,12 +586,65 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
+  /* ── Casas management ── */
+  async function saveCasa() {
+    if (!casaForm.name.trim()) {
+      setCasaError('El nombre es requerido.');
+      return;
+    }
+    setSavingCasa(true);
+    setCasaError('');
+
+    const payload = {
+      name: casaForm.name.trim(),
+      address: casaForm.address || null,
+      leader_id: casaForm.leader_id || null,
+    };
+
+    try {
+      if (casaModal.casa) {
+        const { error } = await supabase
+          .from('house_groups')
+          .update(payload)
+          .eq('id', casaModal.casa.id);
+        if (error) throw error;
+        showToast('Casa de Dios actualizada.');
+      } else {
+        const { error } = await supabase.from('house_groups').insert(payload);
+        if (error) throw error;
+        showToast('Casa de Dios registrada.');
+      }
+      setCasaModal({ open: false });
+      fetchCasasData();
+    } catch (err: unknown) {
+      setCasaError(err instanceof Error ? err.message : 'Error al guardar.');
+    } finally {
+      setSavingCasa(false);
+    }
+  }
+
+  async function confirmDeleteCasa(id: string) {
+    const { error } = await supabase.from('house_groups').delete().eq('id', id);
+    if (error) {
+      showToast('Error al eliminar (puede tener asistencias asociadas).', 'error');
+    } else {
+      showToast('Casa de Dios eliminada.');
+      fetchCasasData();
+    }
+    setDeleteCasaConfirm(null);
+  }
+
   /* ── Tabs config ── */
   const tabs = [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    ...(profile.role === 'principal'
+    ...(profile.role === 'principal' || profile.role === 'admin'
+      ? [
+          { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Grupos' },
+        ]
+      : []),
+    ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
             key: 'users' as ActiveTab,
@@ -1165,8 +1261,97 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
-        {/* ── Users Tab (principal only) ── */}
-        {activeTab === 'users' && profile.role === 'principal' && (
+        {/* ── Casas Tab ── */}
+        {activeTab === 'casas' && (profile.role === 'principal' || profile.role === 'admin') && (
+          <div className="animate-fade-in">
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+              <button
+                onClick={() => {
+                  setCasaForm(emptyCasaForm);
+                  setCasaError('');
+                  setCasaModal({ open: true });
+                }}
+                className="btn btn-primary"
+              >
+                <Plus size={16} />
+                Nueva Casa de Dios
+              </button>
+            </div>
+
+            {houseGroups.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                <p>No hay Casas de Dios registradas.</p>
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Dirección</th>
+                      <th>Líder Asignado</th>
+                      <th>Registrada</th>
+                      <th style={{ textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {houseGroups.map((casa) => {
+                      const leader = profiles.find((p) => p.id === casa.leader_id);
+                      return (
+                        <tr key={casa.id}>
+                          <td><strong>{casa.name}</strong></td>
+                          <td className="text-secondary">{casa.address || '—'}</td>
+                          <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
+                          <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
+                            {formatearFecha(casa.created_at)}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setCasaForm({
+                                    name: casa.name,
+                                    address: casa.address || '',
+                                    leader_id: casa.leader_id || '',
+                                  });
+                                  setCasaError('');
+                                  setCasaModal({ open: true, casa });
+                                }}
+                                className="btn btn-secondary btn-icon"
+                                title="Editar"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+
+                              {deleteCasaConfirm === casa.id ? (
+                                <>
+                                  <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
+                                    <Check size={13} />
+                                  </button>
+                                  <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
+                                    <X size={13} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Users Tab (principal & admin) ── */}
+        {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
             <div
               style={{
@@ -1179,7 +1364,7 @@ export default function DashboardClient({ profile }: Props) {
                 onClick={() => {
                   setUserForm(emptyUserForm);
                   setUserError('');
-                  setUserModal(true);
+                  setUserModal({ open: true });
                 }}
                 className="btn btn-primary"
                 id="add-user-btn"
@@ -1278,7 +1463,7 @@ export default function DashboardClient({ profile }: Props) {
                         {ROLE_LABELS[p.role]}
                       </span>
 
-                      {p.id !== profile.id && (
+                      {p.id !== profile.id && profile.role === 'principal' && (
                         <select
                           className="form-select"
                           style={{
@@ -1297,6 +1482,23 @@ export default function DashboardClient({ profile }: Props) {
                           <option value="user">Consolidador</option>
                         </select>
                       )}
+                      <button
+                        onClick={() => {
+                          setUserForm({
+                            username: p.username,
+                            password: '',
+                            full_name: p.full_name,
+                            phone: p.phone || '',
+                            role: p.role,
+                          });
+                          setUserError('');
+                          setUserModal({ open: true, userId: p.id });
+                        }}
+                        className="btn btn-secondary btn-icon"
+                        title="Editar Usuario"
+                      >
+                        <Edit2 size={13} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1432,8 +1634,8 @@ export default function DashboardClient({ profile }: Props) {
       )}
 
       {/* ── User Modal ── */}
-      {userModal && (
-        <Modal title="Crear Nuevo Usuario" onClose={() => setUserModal(false)}>
+      {userModal.open && (
+        <Modal title={userModal.userId ? "Editar Usuario" : "Crear Nuevo Usuario"} onClose={() => setUserModal({ open: false })}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div className="form-group">
               <label className="form-label">Nombre completo *</label>
@@ -1465,11 +1667,11 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Contraseña *</label>
+              <label className="form-label">Contraseña {userModal.userId ? '(Opcional)' : '*'}</label>
               <input
                 className="form-input"
                 type="password"
-                placeholder="Mínimo 6 caracteres"
+                placeholder={userModal.userId ? "Dejar en blanco para mantener" : "Mínimo 6 caracteres"}
                 value={userForm.password}
                 onChange={(e) =>
                   setUserForm((f) => ({ ...f, password: e.target.value }))
@@ -1519,7 +1721,7 @@ export default function DashboardClient({ profile }: Props) {
               }}
             >
               <button
-                onClick={() => setUserModal(false)}
+                onClick={() => setUserModal({ open: false })}
                 className="btn btn-secondary"
               >
                 Cancelar
@@ -1530,12 +1732,67 @@ export default function DashboardClient({ profile }: Props) {
                 disabled={savingUser}
                 id="save-user-btn"
               >
-                {savingUser ? 'Creando...' : 'Crear usuario'}
+                {savingUser ? 'Guardando...' : userModal.userId ? 'Guardar cambios' : 'Crear usuario'}
               </button>
             </div>
           </div>
         </Modal>
       )}
+      {/* ── Casa Modal ── */}
+      {casaModal.open && (
+        <Modal title={casaModal.casa ? 'Editar Casa de Dios' : 'Nueva Casa de Dios'} onClose={() => setCasaModal({ open: false })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Nombre de la Casa *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Ej. Casa Betania"
+                value={casaForm.name}
+                onChange={(e) => setCasaForm((f) => ({ ...f, name: e.target.value }))}
+                autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Dirección</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Urb. El Centro, Calle 2"
+                value={casaForm.address}
+                onChange={(e) => setCasaForm((f) => ({ ...f, address: e.target.value }))}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Líder Asignado</label>
+              <select
+                className="form-select"
+                value={casaForm.leader_id}
+                onChange={(e) => setCasaForm((f) => ({ ...f, leader_id: e.target.value }))}
+              >
+                <option value="">-- Seleccionar líder --</option>
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.full_name} ({ROLE_LABELS[p.role]})</option>
+                ))}
+              </select>
+            </div>
+
+            {casaError && <p className="form-error">{casaError}</p>}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setCasaModal({ open: false })} className="btn btn-secondary">
+                Cancelar
+              </button>
+              <button onClick={saveCasa} className="btn btn-primary" disabled={savingCasa}>
+                {savingCasa ? 'Guardando...' : casaModal.casa ? 'Guardar cambios' : 'Crear Casa'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Bottom Navigation (Mobile Only) ── */}
       <nav className="bottom-nav hide-on-desktop">
         {tabs.map((t) => (

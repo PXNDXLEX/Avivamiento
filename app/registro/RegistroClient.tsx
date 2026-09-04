@@ -54,6 +54,7 @@ export default function RegistroClient({ profile }: Props) {
     full_name: '',
     age: '',
     city: '',
+    municipio: '',
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
@@ -107,6 +108,7 @@ export default function RegistroClient({ profile }: Props) {
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       city: member.city ?? '',
+      municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
@@ -130,6 +132,7 @@ export default function RegistroClient({ profile }: Props) {
       full_name: form.full_name.trim(),
       age: form.age ? parseInt(form.age) : null,
       city: form.city ? normalizarCiudad(form.city) : null,
+      municipio: form.municipio ? normalizarCiudad(form.municipio) : null,
       address: form.address || null,
       phone: form.phone || null,
       status: form.status,
@@ -235,18 +238,34 @@ export default function RegistroClient({ profile }: Props) {
         </div>
       </div>
 
-      <div className="form-group">
-        <label htmlFor="city" className="form-label">Ciudad</label>
-        <input
-          id="city"
-          className="form-input"
-          type="text"
-          placeholder="Porlamar"
-          value={form.city}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, city: e.target.value }))
-          }
-        />
+      <div className="grid-2">
+        <div className="form-group">
+          <label htmlFor="municipio" className="form-label">Municipio</label>
+          <input
+            id="municipio"
+            className="form-input"
+            type="text"
+            placeholder="Maneiro"
+            value={form.municipio}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, municipio: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="city" className="form-label">Ciudad</label>
+          <input
+            id="city"
+            className="form-input"
+            type="text"
+            placeholder="Porlamar"
+            value={form.city}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, city: e.target.value }))
+            }
+          />
+        </div>
       </div>
 
       <div className="form-group">
@@ -519,7 +538,7 @@ export default function RegistroClient({ profile }: Props) {
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                         {m.phone && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📞 {m.phone}</div>}
-                        {m.city && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📍 {m.city} {m.address ? `- ${m.address}` : ''}</div>}
+                        {(m.municipio || m.city) && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📍 {m.municipio ? m.municipio + ' - ' : ''}{m.city ? m.city : ''} {m.address ? `- ${m.address}` : ''}</div>}
                         {m.age && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🗓 {m.age} años</div>}
                       </div>
                       
