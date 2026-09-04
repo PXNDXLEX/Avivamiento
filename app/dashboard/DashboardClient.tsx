@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole } from '@/app/actions';
-import type { Profile, Member, Role } from '@/lib/types';
+import type { Profile, Member, Role, HouseGroup, Attendance } from '@/lib/types';
 import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
 import {
   BarChart,
@@ -17,6 +17,10 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
 } from 'recharts';
 import {
   Users,
@@ -41,6 +45,7 @@ import {
   Home,
   Calendar,
   BookOpen,
+  Activity,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -206,6 +211,7 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
 
   /* Date Filter */
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
@@ -226,6 +232,10 @@ export default function DashboardClient({ profile }: Props) {
   /* Profiles (users) */
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
+
+  /* Casas de Dios y Asistencias */
+  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
@@ -299,9 +309,23 @@ export default function DashboardClient({ profile }: Props) {
     fetchMembers();
   }, [fetchMembers]);
 
+  const fetchCasasData = useCallback(async () => {
+    try {
+      const [{ data: hgData }, { data: attData }] = await Promise.all([
+        supabase.from('house_groups').select('*'),
+        supabase.from('attendances').select('*')
+      ]);
+      setHouseGroups(hgData ?? []);
+      setAttendances(attData ?? []);
+    } catch (e) {
+      // Ignorar de forma silenciosa si las tablas no existen todavía
+    }
+  }, [supabase]);
+
   useEffect(() => {
     if (activeTab === 'users') fetchProfiles();
-  }, [activeTab, fetchProfiles]);
+    if (activeTab === 'reports') fetchCasasData();
+  }, [activeTab, fetchProfiles, fetchCasasData]);
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
@@ -370,6 +394,39 @@ export default function DashboardClient({ profile }: Props) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([name, value]) => ({ name, value }));
+
+  /* Growth Chart Data */
+  const growthChartData = members.reduce((acc, m) => {
+    if (m.created_at) {
+      const date = new Date(m.created_at);
+      const monthYear = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const existing = acc.find(item => item.name === monthYear);
+      if (existing) {
+        existing.value += 1;
+      } else {
+        acc.push({ name: monthYear, value: 1 });
+      }
+    }
+    return acc;
+  }, [] as { name: string; value: number }[])
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+  let cumulative = 0;
+  const growthChartCumulative = growthChartData.map(item => {
+    cumulative += item.value;
+    return { name: item.name, 'Nuevos': item.value, 'Total': cumulative };
+  });
+
+  /* Casas de Dios Data */
+  const casasChartData = houseGroups.map(hg => {
+    const hgAttendances = attendances.filter(a => a.house_group_id === hg.id);
+    return {
+      name: hg.name,
+      'Asistencias': hgAttendances.length,
+    };
+  }).sort((a, b) => b['Asistencias'] - a['Asistencias']).slice(0, 8);
+
+  const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
 
   /* ── Member CRUD ── */
   function openAddMember() {
@@ -886,129 +943,225 @@ export default function DashboardClient({ profile }: Props) {
 
         {/* ── Reports Tab ── */}
         {activeTab === 'reports' && (
-          <div
-            className="animate-fade-in"
-            style={{
-              display: 'grid',
-              gap: '1.5rem',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-            }}
-          >
-            {/* Status pie chart */}
-            <div className="card" style={{ padding: '1.5rem' }}>
-              <h3
-                className="font-cinzel"
-                style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+          <div className="animate-fade-in">
+            {/* Sub-tabs for Reports */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+              <button
+                onClick={() => setReportsTab('general')}
+                className={`btn ${reportsTab === 'general' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
-                Distribución por Estado
-              </h3>
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={statusChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={105}
-                    paddingAngle={4}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                    labelLine={false}
-                  >
-                    {statusChartData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--bg-card)',
-                      border: '1px solid var(--border-gold)',
-                      borderRadius: '8px',
-                      color: 'var(--text-primary)',
-                      fontSize: '0.85rem',
-                    }}
-                  />
-                  <Legend
-                    formatter={(v) => (
-                      <span
-                        style={{
-                          color: 'var(--text-secondary)',
-                          fontSize: '0.85rem',
-                        }}
-                      >
-                        {v}
-                      </span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+                Reportes Generales
+              </button>
+              <button
+                onClick={() => setReportsTab('casas')}
+                className={`btn ${reportsTab === 'casas' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Casas de Dios
+              </button>
             </div>
 
-            {/* City bar chart */}
-            <div className="card" style={{ padding: '1.5rem' }}>
-              <h3
-                className="font-cinzel"
-                style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+            {reportsTab === 'general' ? (
+              <div
+                style={{
+                  display: 'grid',
+                  gap: '1.5rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+                }}
               >
-                Miembros por Ciudad
-              </h3>
-              {cityChartData.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: 'center',
-                    color: 'var(--text-muted)',
-                    padding: '4rem 0',
-                  }}
-                >
-                  <MapPin
-                    size={36}
-                    style={{
-                      margin: '0 auto 0.75rem',
-                      opacity: 0.3,
-                      display: 'block',
-                    }}
-                  />
-                  <p>Sin datos de ciudades registrados</p>
+                {/* Growth Line Chart */}
+                <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
+                  <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}>Crecimiento de Miembros</h3>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <AreaChart data={growthChartCumulative}>
+                      <defs>
+                        <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--gold-primary)" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="var(--gold-primary)" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="name" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                      <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-gold)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                      <Legend />
+                      <Area type="monotone" dataKey="Total" stroke="var(--gold-primary)" fillOpacity={1} fill="url(#colorTotal)" />
+                      <Area type="monotone" dataKey="Nuevos" stroke="#2ecc71" fillOpacity={0} />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={cityChartData} layout="vertical">
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="rgba(255,255,255,0.05)"
-                    />
-                    <XAxis
-                      type="number"
-                      stroke="var(--text-muted)"
-                      tick={{ fontSize: 11 }}
-                      allowDecimals={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={90}
-                      stroke="var(--text-muted)"
-                      tick={{ fontSize: 11 }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border-gold)',
-                        borderRadius: '8px',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.85rem',
+
+                {/* Status pie chart */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <h3
+                    className="font-cinzel"
+                    style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+                  >
+                    Distribución por Estado
+                  </h3>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={statusChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={105}
+                        paddingAngle={4}
+                        dataKey="value"
+                        label={({ name, value }) => `${name}: ${value}`}
+                        labelLine={false}
+                      >
+                        {statusChartData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-gold)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+                      <Legend
+                        formatter={(v) => (
+                          <span
+                            style={{
+                              color: 'var(--text-secondary)',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            {v}
+                          </span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* City bar chart */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <h3
+                    className="font-cinzel"
+                    style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+                  >
+                    Miembros agrupados por municipio
+                  </h3>
+                  {cityChartData.length === 0 ? (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        color: 'var(--text-muted)',
+                        padding: '4rem 0',
                       }}
-                    />
-                    <Bar
-                      dataKey="value"
-                      fill="var(--gold-primary)"
-                      radius={[0, 4, 4, 0]}
-                      name="Miembros"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+                    >
+                      <MapPin
+                        size={36}
+                        style={{
+                          margin: '0 auto 0.75rem',
+                          opacity: 0.3,
+                          display: 'block',
+                        }}
+                      />
+                      <p>Sin datos de ciudades registrados</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={cityChartData} layout="vertical">
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="rgba(255,255,255,0.05)"
+                          horizontal={false}
+                        />
+                        <XAxis
+                          type="number"
+                          stroke="var(--text-muted)"
+                          tick={{ fontSize: 11 }}
+                          allowDecimals={false}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="name"
+                          width={90}
+                          stroke="var(--text-muted)"
+                          tick={{ fontSize: 11 }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                          }}
+                        />
+                        <Bar
+                          dataKey="value"
+                          fill="var(--gold-primary)"
+                          radius={[0, 4, 4, 0]}
+                          name="Miembros"
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                className="animate-fade-in"
+                style={{
+                  display: 'grid',
+                  gap: '1.5rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
+                }}
+              >
+                {/* Metricas Casas */}
+                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
+                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+                </div>
+
+                {/* Attendance Chart */}
+                <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
+                  <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}>Asistencia a Casas de Dios</h3>
+                  {houseGroups.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '4rem 0' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios en base de datos.</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={casasChartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                        <XAxis dataKey="name" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                          }}
+                          cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                        />
+                        <Bar dataKey="Asistencias" fill="var(--gold-light)" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

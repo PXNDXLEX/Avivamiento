@@ -28,3 +28,19 @@ export interface Member {
 export interface MemberWithProfile extends Member {
   profiles?: Profile | null;
 }
+
+export interface HouseGroup {
+  id: string;
+  name: string;
+  address: string | null;
+  leader_id: string | null;
+  created_at: string;
+}
+
+export interface Attendance {
+  id: string;
+  house_group_id: string;
+  member_id: string;
+  meeting_date: string;
+  created_at: string;
+}
