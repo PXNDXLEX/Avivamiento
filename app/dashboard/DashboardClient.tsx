@@ -1260,7 +1260,7 @@ export default function DashboardClient({ profile }: Props) {
                   >
                     Miembros agrupados por municipio
                   </h3>
-                  {cityChartData.length === 0 ? (
+                  {municipioChartData.length === 0 ? (
                     <div
                       style={{
                         textAlign: 'center',
@@ -1280,7 +1280,7 @@ export default function DashboardClient({ profile }: Props) {
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={cityChartData} layout="vertical">
+                      <BarChart data={municipioChartData} layout="vertical">
                         <CartesianGrid
                           strokeDasharray="3 3"
                           stroke="rgba(255,255,255,0.05)"
@@ -1725,17 +1725,32 @@ export default function DashboardClient({ profile }: Props) {
               </select>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Ciudad</label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="Porlamar"
-                value={memberForm.city}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, city: e.target.value }))
-                }
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Ciudad</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Porlamar"
+                  value={memberForm.city}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, city: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Municipio</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Mariño"
+                  value={memberForm.municipio}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, municipio: e.target.value }))
+                  }
+                />
+              </div>
             </div>
 
             <div className="form-group">
