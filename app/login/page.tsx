@@ -80,7 +80,7 @@ export default function LoginPage() {
               border: '2px solid var(--border-gold)',
               animation: 'pulse-glow 3s ease-in-out infinite',
               position: 'relative',
-              background: '#000',
+              background: 'var(--bg-primary)',
             }}
           >
             <img

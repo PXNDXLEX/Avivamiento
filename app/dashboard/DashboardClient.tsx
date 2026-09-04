@@ -769,7 +769,7 @@ export default function DashboardClient({ profile }: Props) {
       {/* ── Sidebar (Desktop) ── */}
       <aside className="sidebar hide-on-mobile" style={{ padding: '2rem 1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '3rem' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', border: '1px solid var(--border-gold)', background: '#000', flexShrink: 0 }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', border: '1px solid var(--border-gold)', background: 'var(--bg-primary)', flexShrink: 0 }}>
             <img src="/logo.jpg" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <div>
