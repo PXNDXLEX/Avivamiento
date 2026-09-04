@@ -726,6 +726,8 @@ export default function DashboardClient({ profile }: Props) {
         phone: fastMemberForm.phone || null,
         status: 'Nuevo',
         house_group_id: serviceModal.houseGroupId,
+        consolidator_id: profile?.id,
+        consolidator_name: profile?.full_name,
       }).select('id').single();
 
       if (error) throw error;
@@ -1972,7 +1974,10 @@ export default function DashboardClient({ profile }: Props) {
 
       {/* ── Service Control Modal ── */}
       {serviceModal.open && (
-        <Modal title="Control de Servicio" onClose={() => setServiceModal({ open: false })}>
+        <Modal title="Control de Servicio" onClose={() => {
+          setServiceModal({ open: false });
+          setFastNewMemberOpen(false);
+        }}>
           {fastNewMemberOpen ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--gold-primary)' }}>Registrar Nuevo Asistente</h3>
