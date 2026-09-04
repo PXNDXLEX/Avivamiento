@@ -46,6 +46,7 @@ import {
   Calendar,
   BookOpen,
   Activity,
+  CalendarDays,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -286,6 +287,9 @@ export default function DashboardClient({ profile }: Props) {
   const [casaForm, setCasaForm] = useState(emptyCasaForm);
   const [savingCasa, setSavingCasa] = useState(false);
   const [casaError, setCasaError] = useState('');
+
+  /* Service History Modal */
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; houseGroupId?: string; houseGroupName?: string }>({ open: false });
 
   /* Service Control Modal */
   const [serviceModal, setServiceModal] = useState<{ open: boolean; houseGroupId?: string }>({ open: false });
@@ -1435,6 +1439,14 @@ export default function DashboardClient({ profile }: Props) {
                                 <BookOpen size={13} />
                               </button>
                               
+                              <button
+                                onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                className="btn btn-secondary btn-icon"
+                                title="Historial de Servicios"
+                              >
+                                <CalendarDays size={13} />
+                              </button>
+
                               {profile.role !== 'user' && (
                                 <>
                                   <button
@@ -2127,6 +2139,74 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
           )}
+        </Modal>
+      )}
+
+      {/* ── Service History Modal ── */}
+      {historyModal.open && (
+        <Modal title={`Historial de Servicios - ${historyModal.houseGroupName || ''}`} onClose={() => setHistoryModal({ open: false })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '60vh', overflowY: 'auto' }}>
+            {(() => {
+              const meetings = houseGroupMeetings.filter(m => m.house_group_id === historyModal.houseGroupId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              
+              if (meetings.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                    <CalendarDays size={32} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
+                    <p>No se han registrado servicios en esta Casa de Dios.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="table-wrapper">
+                  <table style={{ minWidth: '400px' }}>
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Día</th>
+                        <th>Tema / Enseñanza</th>
+                        <th style={{ textAlign: 'center' }}>Asistentes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meetings.map(meeting => {
+                        const dateObj = new Date(meeting.date + 'T12:00:00Z');
+                        const dayName = dateObj.toLocaleDateString('es-ES', { weekday: 'long' });
+                        const dateString = dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        const attendeesCount = attendances.filter(a => a.meeting_id === meeting.id).length;
+                        
+                        return (
+                          <tr key={meeting.id}>
+                            <td suppressHydrationWarning>{dateString}</td>
+                            <td suppressHydrationWarning style={{ textTransform: 'capitalize' }}>{dayName}</td>
+                            <td><strong>{meeting.topic || 'Sin título'}</strong></td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ 
+                                background: 'var(--bg-card-hover)', 
+                                padding: '0.2rem 0.6rem', 
+                                borderRadius: '12px', 
+                                fontSize: '0.85rem',
+                                color: 'var(--gold-primary)'
+                              }}>
+                                {attendeesCount}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setHistoryModal({ open: false })} className="btn btn-secondary">
+                Cerrar
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
