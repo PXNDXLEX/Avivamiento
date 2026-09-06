@@ -104,30 +104,11 @@ export default function LoginPage() {
         </div>
 
         {mounted && versiculo.texto && (
-          <div
-            className="animate-fade-in"
-            style={{
-              background: 'rgba(201,168,76,0.05)',
-              border: '1px solid var(--border-gold)',
-              borderRadius: 'var(--border-radius)',
-              padding: '1rem 1.25rem',
-              textAlign: 'center',
-              fontStyle: 'italic',
-              fontSize: '0.85rem',
-              color: 'var(--text-secondary)',
-              lineHeight: 1.65,
-            }}
-          >
-            <p>&ldquo;{versiculo.texto}&rdquo;</p>
-            <p
-              className="text-gold"
-              style={{
-                marginTop: '0.5rem',
-                fontStyle: 'normal',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-              }}
-            >
+          <div className="verse-banner animate-fade-in" style={{ padding: '1.25rem 1.5rem' }}>
+            <p className="verse-text" style={{ fontSize: '0.92rem', marginBottom: '0.4rem' }}>
+              &ldquo;{versiculo.texto}&rdquo;
+            </p>
+            <p className="verse-ref">
               — {versiculo.referencia}
             </p>
           </div>

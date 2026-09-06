@@ -30,7 +30,6 @@ export interface Member {
   full_name: string;
   gender: 'Masculino' | 'Femenino' | null;
   age: number | null;
-  city: string | null;
   municipio: string | null;
   address: string | null;
   phone: string | null;

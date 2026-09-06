@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -56,10 +56,23 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  Nuevo: '#2ecc71',
-  Reconciliado: '#3498db',
-  Visitante: '#C9A84C',
+  Nuevo: 'var(--color-nuevo)',
+  Reconciliado: 'var(--color-reconciliado)',
+  Visitante: 'var(--color-visitante)',
 };
+
+const CASA_COLORS = [
+  '#C9A84C', // Dorado distintivo
+  '#3b82f6', // Azul real
+  '#10b981', // Verde esmeralda
+  '#f59e0b', // Ámbar
+  '#8b5cf6', // Violeta
+  '#ec4899', // Rosa vibrante
+  '#06b6d4', // Cyan
+  '#f97316', // Naranja
+  '#14b8a6', // Teal
+  '#6366f1', // Indigo
+];
 
 const ROLE_LABELS: Record<Role, string> = {
   principal: 'Principal',
@@ -215,6 +228,7 @@ export default function DashboardClient({ profile }: Props) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
+  const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
 
   /* Asignar Miembros state */
   const [assignSearch, setAssignSearch] = useState('');
@@ -255,7 +269,6 @@ export default function DashboardClient({ profile }: Props) {
     full_name: '',
     age: '',
     gender: '' as string,
-    city: '',
     municipio: '',
     address: '',
     phone: '',
@@ -381,10 +394,9 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
-    // 1. Status and Search filter
     const q = search.toLowerCase();
     const matchSearch =
-      (m.city ?? '').toLowerCase().includes(q) ||
+      m.full_name.toLowerCase().includes(q) ||
       (m.municipio ?? '').toLowerCase().includes(q) ||
       (m.phone ?? '').toLowerCase().includes(q) ||
       (m.consolidator_name || '').toLowerCase().includes(q);
@@ -436,28 +448,11 @@ export default function DashboardClient({ profile }: Props) {
     filteredMembers.reduce((acc: Record<string, number>, m) => {
       if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante') {
         if (m.municipio) {
-          const municipio = normalizarCiudad(m.municipio);
-          acc[municipio] = (acc[municipio] ?? 0) + 1;
+          acc[m.municipio] = (acc[m.municipio] ?? 0) + 1;
         }
       }
       return acc;
     }, {})
-  )
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([name, value]) => ({ name, value }));
-
-  const cityChartData = Object.entries(
-    members.reduce(
-      (acc, m) => {
-        if (m.city) {
-          const city = normalizarCiudad(m.city);
-          acc[city] = (acc[city] ?? 0) + 1;
-        }
-        return acc;
-      },
-      {} as Record<string, number>
-    )
   )
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
@@ -485,15 +480,33 @@ export default function DashboardClient({ profile }: Props) {
     return { name: item.name, 'Nuevos': item.value, 'Total': cumulative };
   });
 
-  /* Casas de Dios Data */
-  const casasChartData = houseGroups.map(hg => {
-    const hgMeetings = houseGroupMeetings.filter(m => m.house_group_id === hg.id).map(m => m.id);
-    const hgAttendances = attendances.filter(a => hgMeetings.includes(a.meeting_id));
-    return {
-      name: hg.name,
-      'Asistencias': hgAttendances.length,
+  /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
+  const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
+
+  houseGroupMeetings.forEach((meeting) => {
+    const dateKey = meeting.date;
+    const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
+    if (!attendanceByDateAndHouse[dateKey]) {
+      attendanceByDateAndHouse[dateKey] = {};
+    }
+    attendanceByDateAndHouse[dateKey][meeting.house_group_id] =
+      (attendanceByDateAndHouse[dateKey][meeting.house_group_id] || 0) + attendeesCount;
+  });
+
+  const sortedMeetingDates = Object.keys(attendanceByDateAndHouse).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime()
+  );
+
+  const casasTimelineData = sortedMeetingDates.map((dateKey) => {
+    const point: Record<string, any> = {
+      fecha: formatearFechaCorta(dateKey),
+      rawDate: dateKey,
     };
-  }).sort((a, b) => b['Asistencias'] - a['Asistencias']).slice(0, 8);
+    houseGroups.forEach((hg) => {
+      point[hg.name] = attendanceByDateAndHouse[dateKey][hg.id] ?? 0;
+    });
+    return point;
+  });
 
   const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
 
@@ -509,7 +522,6 @@ export default function DashboardClient({ profile }: Props) {
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
-      city: member.city ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
@@ -531,7 +543,6 @@ export default function DashboardClient({ profile }: Props) {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
       gender: memberForm.gender || null,
-      city: memberForm.city ? normalizarCiudad(memberForm.city) : null,
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
       phone: memberForm.phone || null,
@@ -880,27 +891,16 @@ export default function DashboardClient({ profile }: Props) {
         {activeTab === 'home' && (
           <div className="animate-fade-in">
             {versiculo && (
-              <div
-                className="card-glass"
-                style={{
-                  marginBottom: '2rem',
-                  padding: '1.5rem',
-                  textAlign: 'center',
-                  background: 'linear-gradient(145deg, rgba(20,20,20,0.8), rgba(0,0,0,0.4))',
-                  border: '1px solid var(--border-gold)',
-                  position: 'relative',
-                  overflow: 'hidden',
-                }}
-              >
-                <div style={{ position: 'absolute', top: '-10%', left: '-5%', opacity: 0.05 }}>
+              <div className="verse-banner" style={{ marginBottom: '2rem' }}>
+                <div style={{ position: 'absolute', top: '-10%', left: '-5%', opacity: 0.04 }}>
                   <BookOpen size={120} />
                 </div>
                 <BookOpen size={24} style={{ color: 'var(--gold-primary)', margin: '0 auto 1rem' }} />
-                <p className="font-cinzel" style={{ fontSize: '1.1rem', fontStyle: 'italic', color: 'var(--text-primary)', marginBottom: '0.5rem', position: 'relative', zIndex: 1 }}>
-                  "{versiculo.texto}"
+                <p className="font-cinzel verse-text">
+                  &ldquo;{versiculo.texto}&rdquo;
                 </p>
-                <p style={{ fontSize: '0.8rem', color: 'var(--gold-light)', fontWeight: 600, position: 'relative', zIndex: 1 }}>
-                  {versiculo.referencia}
+                <p className="verse-ref">
+                  — {versiculo.referencia}
                 </p>
               </div>
             )}
@@ -1031,7 +1031,7 @@ export default function DashboardClient({ profile }: Props) {
                     <tr>
                       <th>Nombre</th>
                       <th>Miembro</th>
-                      <th>Ciudad</th>
+                      <th>Municipio</th>
                       <th>Teléfono</th>
                       <th>Consolidador</th>
                       <th>Registrado</th>
@@ -1073,7 +1073,7 @@ export default function DashboardClient({ profile }: Props) {
                           </span>
                         </td>
                         <td className="text-secondary">
-                          {member.city ?? '—'}
+                          {member.municipio ?? '—'}
                         </td>
                         <td className="text-secondary">
                           {member.phone ?? '—'}
@@ -1346,32 +1346,118 @@ export default function DashboardClient({ profile }: Props) {
                   <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
                 </div>
 
-                {/* Attendance Chart */}
+                {/* Attendance Chart - Por Casa y Fecha con Leyenda */}
                 <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
-                  <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}>Asistencia a Casas de Dios</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>
+                        Asistencia por Casa de Dios y Fecha
+                      </h3>
+                      <p className="text-muted" style={{ fontSize: '0.8rem' }}>
+                        Historial comparativo de participantes por servicio realizado
+                      </p>
+                    </div>
+                    {casasTimelineData.length > 0 && (
+                      <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                        <button
+                          onClick={() => setCasasChartType('bar')}
+                          className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                        >
+                          Barras
+                        </button>
+                        <button
+                          onClick={() => setCasasChartType('line')}
+                          className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                        >
+                          Líneas
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {houseGroups.length === 0 ? (
                     <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '4rem 0' }}>
                       <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios en base de datos.</p>
+                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                    </div>
+                  ) : casasTimelineData.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                        Sin registros de servicios con fecha aún
+                      </p>
+                      <p style={{ fontSize: '0.85rem' }}>
+                        Registra los servicios realizados desde <strong>Casa de Dios &gt; Gestionar Casas &gt; Control de Servicio</strong> para visualizar la comparativa por fecha.
+                      </p>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={casasChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                        <XAxis dataKey="name" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{
-                            background: 'var(--bg-card)',
-                            border: '1px solid var(--border-gold)',
-                            borderRadius: '8px',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                          }}
-                          cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                        />
-                        <Bar dataKey="Asistencias" fill="var(--gold-light)" radius={[4, 4, 0, 0]} />
-                      </BarChart>
+                    <ResponsiveContainer width="100%" height={320}>
+                      {casasChartType === 'bar' ? (
+                        <BarChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
+                          />
+                          {houseGroups.map((hg, idx) => (
+                            <Bar
+                              key={hg.id}
+                              dataKey={hg.name}
+                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
+                              radius={[4, 4, 0, 0]}
+                            />
+                          ))}
+                        </BarChart>
+                      ) : (
+                        <LineChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
+                          />
+                          {houseGroups.map((hg, idx) => (
+                            <Line
+                              key={hg.id}
+                              type="monotone"
+                              dataKey={hg.name}
+                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
+                              strokeWidth={2.5}
+                              dot={{ r: 4 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          ))}
+                        </LineChart>
+                      )}
                     </ResponsiveContainer>
                   )}
                 </div>
@@ -1923,7 +2009,6 @@ export default function DashboardClient({ profile }: Props) {
 
 
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Municipio</label>
                 <select
@@ -1933,26 +2018,12 @@ export default function DashboardClient({ profile }: Props) {
                     setMemberForm((f) => ({ ...f, municipio: e.target.value }))
                   }
                 >
-                  <option value="">-- Seleccionar --</option>
+                  <option value="">-- Seleccionar Municipio --</option>
                   {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Ciudad</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Porlamar"
-                  value={memberForm.city}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, city: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
 
             <div className="form-group">
               <label className="form-label">Dirección</label>

@@ -51,3 +51,12 @@ export function formatearFecha(fecha: string): string {
     minute: '2-digit',
   });
 }
+
+export function formatearFechaCorta(fecha: string): string {
+  const d = new Date(fecha.includes('T') ? fecha : `${fecha}T12:00:00Z`);
+  return d.toLocaleDateString('es-VE', {
+    day: '2-digit',
+    month: 'short',
+  });
+}
+

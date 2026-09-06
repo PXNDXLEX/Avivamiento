@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { normalizarCiudad, formatearFecha, getRandomVersiculo } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -55,7 +55,6 @@ export default function RegistroClient({ profile }: Props) {
     full_name: '',
     age: '',
     gender: '' as string,
-    city: '',
     municipio: '',
     address: '',
     phone: '',
@@ -112,7 +111,6 @@ export default function RegistroClient({ profile }: Props) {
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
-      city: member.city ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
@@ -137,7 +135,6 @@ export default function RegistroClient({ profile }: Props) {
       full_name: form.full_name.trim(),
       age: form.age ? parseInt(form.age) : null,
       gender: form.gender || null,
-      city: form.city ? normalizarCiudad(form.city) : null,
       municipio: form.municipio || null,
       address: form.address || null,
       phone: form.phone || null,
@@ -264,37 +261,21 @@ export default function RegistroClient({ profile }: Props) {
       </div>
 
 
-      <div className="grid-2">
-        <div className="form-group">
-          <label htmlFor="municipio" className="form-label">Municipio</label>
-          <select
-            id="municipio"
-            className="form-select"
-            value={form.municipio}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, municipio: e.target.value }))
-            }
-          >
-            <option value="">-- Seleccionar --</option>
-            {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="city" className="form-label">Ciudad</label>
-          <input
-            id="city"
-            className="form-input"
-            type="text"
-            placeholder="Porlamar"
-            value={form.city}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, city: e.target.value }))
-            }
-          />
-        </div>
+      <div className="form-group">
+        <label htmlFor="municipio" className="form-label">Municipio</label>
+        <select
+          id="municipio"
+          className="form-select"
+          value={form.municipio}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, municipio: e.target.value }))
+          }
+        >
+          <option value="">-- Seleccionar Municipio --</option>
+          {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
       </div>
 
       <div className="form-group">
@@ -492,22 +473,9 @@ export default function RegistroClient({ profile }: Props) {
 
             {/* Versículo del día */}
             {mounted && versiculo.texto && (
-              <div
-                style={{
-                  background: 'rgba(201,168,76,0.05)',
-                  border: '1px solid var(--border-gold)',
-                  borderRadius: 'var(--border-radius)',
-                  padding: '1.5rem',
-                  textAlign: 'center',
-                  fontStyle: 'italic',
-                  fontSize: '0.95rem',
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.6,
-                  marginBottom: '2.5rem',
-                }}
-              >
-                <p>&ldquo;{versiculo.texto}&rdquo;</p>
-                <p className="text-gold" style={{ marginTop: '0.5rem', fontStyle: 'normal', fontSize: '0.8rem', fontWeight: 600 }}>
+              <div className="verse-banner" style={{ marginBottom: '2.5rem' }}>
+                <p className="verse-text">&ldquo;{versiculo.texto}&rdquo;</p>
+                <p className="verse-ref">
                   — {versiculo.referencia}
                 </p>
               </div>
@@ -518,9 +486,9 @@ export default function RegistroClient({ profile }: Props) {
             </h2>
             <div className="grid-2">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
-              <StatCard label="Nuevos" value={stats.nuevo} color="#2ecc71" />
-              <StatCard label="Reconciliados" value={stats.reconciliado} color="#3498db" />
-              <StatCard label="Visitantes" value={stats.visitante} color="#C9A84C" />
+              <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
+              <StatCard label="Reconciliados" value={stats.reconciliado} color="var(--color-reconciliado)" />
+              <StatCard label="Visitantes" value={stats.visitante} color="var(--color-visitante)" />
             </div>
           </div>
         )}
@@ -567,7 +535,11 @@ export default function RegistroClient({ profile }: Props) {
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                         {m.phone && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📞 {m.phone}</div>}
-                        {(m.municipio || m.city) && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📍 {m.municipio ? m.municipio + ' - ' : ''}{m.city ? m.city : ''} {m.address ? `- ${m.address}` : ''}</div>}
+                        {(m.municipio || m.address) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            📍 {m.municipio ?? ''}{m.address ? (m.municipio ? ` — ${m.address}` : m.address) : ''}
+                          </div>
+                        )}
                         {m.age && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🗓 {m.age} años</div>}
                       </div>
                       

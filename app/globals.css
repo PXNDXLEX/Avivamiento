@@ -27,6 +27,13 @@
   --border-gold: rgba(201, 168, 76, 0.3);
   --border-subtle: rgba(255, 255, 255, 0.06);
 
+  --bg-glass: rgba(20, 20, 20, 0.78);
+  --border-glass: rgba(201, 168, 76, 0.2);
+
+  --color-nuevo: #2ecc71;
+  --color-reconciliado: #3498db;
+  --color-visitante: #C9A84C;
+
   --shadow-gold: 0 0 20px rgba(201, 168, 76, 0.2);
   --shadow-gold-strong: 0 0 40px rgba(201, 168, 76, 0.4);
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.6);
@@ -67,18 +74,25 @@ html.light {
   --gold-light: #C9A84C;
   --gold-dark: #8F6F2C;
 
-  --text-primary: #2C2A26;
-  --text-secondary: #5C5850;
-  --text-muted: #8A857A;
-  --text-gold: #B58F3B;
+  --text-primary: #1F1D1A;
+  --text-secondary: #524E46;
+  --text-muted: #6E685D;
+  --text-gold: #9A7426;
 
-  --border-gold: rgba(181, 143, 59, 0.4);
-  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-gold: rgba(181, 143, 59, 0.45);
+  --border-subtle: rgba(0, 0, 0, 0.09);
+
+  --bg-glass: rgba(255, 255, 255, 0.94);
+  --border-glass: rgba(181, 143, 59, 0.35);
+
+  --color-nuevo: #15803d;
+  --color-reconciliado: #1d4ed8;
+  --color-visitante: #b45309;
 
   --shadow-gold: 0 4px 15px rgba(181, 143, 59, 0.15);
   --shadow-gold-strong: 0 4px 25px rgba(181, 143, 59, 0.3);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.05);
-  --shadow-deep: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --shadow-deep: 0 8px 30px rgba(0, 0, 0, 0.12);
 }
 
 /* ========================================
@@ -215,12 +229,59 @@ h3 { font-size: clamp(1rem, 2vw, 1.3rem); font-weight: 600; }
 }
 
 .card-glass {
-  background: rgba(20, 20, 20, 0.7);
+  background: var(--bg-glass);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(201, 168, 76, 0.15);
+  border: 1px solid var(--border-glass);
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-card);
+}
+
+/* Verse Banner Styling */
+.verse-banner {
+  background: linear-gradient(135deg, rgba(28, 24, 18, 0.9) 0%, rgba(18, 16, 12, 0.95) 100%);
+  border: 1px solid rgba(201, 168, 76, 0.35);
+  border-radius: var(--border-radius-lg);
+  padding: 1.75rem 2rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.verse-banner .verse-text {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-style: italic;
+  line-height: 1.6;
+  margin-bottom: 0.6rem;
+  position: relative;
+  z-index: 1;
+}
+
+.verse-banner .verse-ref {
+  color: var(--gold-light);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  position: relative;
+  z-index: 1;
+}
+
+html.light .verse-banner {
+  background: linear-gradient(135deg, #FFFDF8 0%, #F5EFE1 100%);
+  border: 1px solid rgba(181, 143, 59, 0.4);
+  box-shadow: 0 8px 30px rgba(181, 143, 59, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+html.light .verse-banner .verse-text {
+  color: #1F1D1A;
+  font-weight: 500;
+}
+
+html.light .verse-banner .verse-ref {
+  color: #8F6F2C;
+  font-weight: 700;
 }
 
 .card-metric {
@@ -439,6 +500,44 @@ h3 { font-size: clamp(1rem, 2vw, 1.3rem); font-weight: 600; }
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-secondary);
   border: 1px solid var(--border-subtle);
+}
+
+/* Light Theme Badges & Overrides */
+html.light .badge-nuevo {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+html.light .badge-reconciliado {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+html.light .badge-visitante {
+  background: rgba(180, 83, 9, 0.12);
+  color: #92400e;
+  border-color: rgba(180, 83, 9, 0.3);
+}
+
+html.light .badge-admin,
+html.light .badge-principal {
+  background: rgba(181, 143, 59, 0.18);
+  color: #785210;
+  border-color: rgba(181, 143, 59, 0.4);
+}
+
+html.light .badge-user {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-secondary);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+html.light .card-metric {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F5F0E4 100%);
+  border: 1px solid rgba(181, 143, 59, 0.35);
+  box-shadow: 0 4px 16px rgba(181, 143, 59, 0.08);
 }
 
 /* ========================================
