@@ -80,7 +80,7 @@ const ROLE_LABELS: Record<Role, string> = {
   user: 'Consolidador',
 };
 
-type ActiveTab = 'home' | 'members' | 'reports' | 'users' | 'casas';
+type ActiveTab = 'home' | 'members' | 'reports' | 'casas' | 'services' | 'users';
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -333,6 +333,14 @@ export default function DashboardClient({ profile }: Props) {
   const [savingFastMember, setSavingFastMember] = useState(false);
   const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
 
+  /* Control de Servicios Tab state */
+  const [selectedServiceHouseId, setSelectedServiceHouseId] = useState<string>('');
+  const [meetingToManage, setMeetingToManage] = useState<HouseGroupMeeting | null>(null);
+  const [meetingToDelete, setMeetingToDelete] = useState<HouseGroupMeeting | null>(null);
+  const [meetingSearchMember, setMeetingSearchMember] = useState<string>('');
+  const [addingAttendee, setAddingAttendee] = useState(false);
+  const [removingAttendeeId, setRemovingAttendeeId] = useState<string | null>(null);
+
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -388,8 +396,8 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'users' || activeTab === 'casas') fetchProfiles();
-    if (activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
+    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'services') fetchProfiles();
+    if (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'services') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
 
   /* ── Derived state ── */
@@ -738,31 +746,96 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
+  async function deleteMeeting(meetingId: string) {
+    try {
+      await supabase.from('attendances').delete().eq('meeting_id', meetingId);
+      const { error } = await supabase.from('house_group_meetings').delete().eq('id', meetingId);
+      if (error) throw error;
+      showToast('Enseñanza eliminada correctamente.');
+      setMeetingToDelete(null);
+      if (meetingToManage?.id === meetingId) {
+        setMeetingToManage(null);
+      }
+      fetchCasasData();
+    } catch (err: any) {
+      showToast(err.message || 'Error al eliminar enseñanza.', 'error');
+    }
+  }
+
+  async function removeAttendee(meetingId: string, memberId: string) {
+    setRemovingAttendeeId(memberId);
+    try {
+      const { error } = await supabase
+        .from('attendances')
+        .delete()
+        .eq('meeting_id', meetingId)
+        .eq('member_id', memberId);
+      if (error) throw error;
+      showToast('Miembro retirado de la asistencia.');
+      fetchCasasData();
+    } catch (err: any) {
+      showToast('Error al retirar miembro.', 'error');
+    } finally {
+      setRemovingAttendeeId(null);
+    }
+  }
+
+  async function addAttendee(meetingId: string, memberId: string) {
+    setAddingAttendee(true);
+    try {
+      const { error } = await supabase
+        .from('attendances')
+        .insert({
+          meeting_id: meetingId,
+          member_id: memberId,
+        });
+      if (error) throw error;
+      showToast('Miembro añadido a la asistencia.');
+      fetchCasasData();
+    } catch (err: any) {
+      showToast('Error al añadir miembro.', 'error');
+    } finally {
+      setAddingAttendee(false);
+    }
+  }
+
   async function saveFastMember() {
     if (!fastMemberForm.full_name.trim()) return;
     setSavingFastMember(true);
     try {
+      const targetHouseId = serviceModal.houseGroupId || selectedServiceHouseId || houseGroups[0]?.id || null;
       const { data: inserted, error } = await supabase.from('members').insert({
         full_name: fastMemberForm.full_name.trim(),
         phone: fastMemberForm.phone || null,
         status: 'Nuevo',
-        house_group_id: serviceModal.houseGroupId,
+        house_group_id: targetHouseId,
         consolidator_id: profile?.id,
         consolidator_name: profile?.full_name,
       }).select('id').single();
 
       if (error) throw error;
       
-      setServiceForm(prev => ({
-        ...prev,
-        attendeeIds: [...prev.attendeeIds, inserted.id]
-      }));
+      if (meetingToManage) {
+        await supabase.from('attendances').insert({
+          meeting_id: meetingToManage.id,
+          member_id: inserted.id,
+        });
+        showToast('Asistente registrado y añadido a la enseñanza.');
+        fetchCasasData();
+      } else {
+        setServiceForm(prev => ({
+          ...prev,
+          attendeeIds: [...prev.attendeeIds, inserted.id]
+        }));
+        showToast('Asistente creado.');
+      }
       
       setFastNewMemberOpen(false);
       setFastMemberForm(emptyFastMember);
       fetchMembers();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      showToast('Error al crear asistente.', 'error');
     } finally {
       setSavingFastMember(false);
     }
@@ -776,6 +849,11 @@ export default function DashboardClient({ profile }: Props) {
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
+          {
+            key: 'services' as ActiveTab,
+            icon: <BookOpen size={15} />,
+            label: 'Control de Servicios',
+          },
           {
             key: 'users' as ActiveTab,
             icon: <Shield size={15} />,
@@ -1549,13 +1627,11 @@ export default function DashboardClient({ profile }: Props) {
                                 <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
                                   <button
                                     onClick={() => {
-                                      setServiceForm(emptyServiceForm);
-                                      setServiceSearch('');
-                                      setServiceError('');
-                                      setServiceModal({ open: true, houseGroupId: casa.id });
+                                      setSelectedServiceHouseId(casa.id);
+                                      setActiveTab('services');
                                     }}
                                     className="btn btn-primary btn-icon"
-                                    title="Control de Servicio"
+                                    title="Ir a Control de Servicios"
                                   >
                                     <BookOpen size={13} />
                                   </button>
@@ -1774,6 +1850,208 @@ export default function DashboardClient({ profile }: Props) {
                 })()}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Control de Servicios Tab (principal & admin only) ── */}
+        {activeTab === 'services' && (profile.role === 'principal' || profile.role === 'admin') && (
+          <div className="animate-fade-in">
+            {/* Header */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h2 className="font-cinzel" style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <BookOpen size={22} style={{ color: 'var(--gold-primary)' }} />
+                Control de Servicios de Casas de Dios
+              </h2>
+              <p className="text-secondary" style={{ fontSize: '0.85rem' }}>
+                Selecciona una Casa de Dios para gestionar sus enseñanzas, asistencias y participantes.
+              </p>
+            </div>
+
+            {houseGroups.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
+                <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay Casas de Dios registradas</h3>
+                <p>Primero debes registrar al menos una Casa de Dios desde el menú <strong>Casa de Dios</strong>.</p>
+              </div>
+            ) : (() => {
+              const currentHouseId = selectedServiceHouseId || houseGroups[0]?.id || '';
+              const currentHouse = houseGroups.find(h => h.id === currentHouseId) || houseGroups[0];
+              const meetingsForHouse = houseGroupMeetings
+                .filter(m => m.house_group_id === currentHouse.id)
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              const meetingIds = meetingsForHouse.map(m => m.id);
+              const totalAttendancesForHouse = attendances.filter(a => meetingIds.includes(a.meeting_id)).length;
+              const leader = profiles.find(p => p.id === currentHouse.leader_id);
+
+              return (
+                <div>
+                  {/* Selector de Casa de Dios & Resumen */}
+                  <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: '280px' }}>
+                        <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                          Seleccionar Casa:
+                        </label>
+                        <select
+                          className="form-select"
+                          style={{ maxWidth: '380px' }}
+                          value={currentHouse.id}
+                          onChange={(e) => setSelectedServiceHouseId(e.target.value)}
+                        >
+                          {houseGroups.map((hg) => (
+                            <option key={hg.id} value={hg.id}>
+                              {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setServiceForm({
+                            topic: '',
+                            date: new Date().toISOString().split('T')[0],
+                            start_time: '19:00',
+                            end_time: '20:30',
+                            attendeeIds: [],
+                          });
+                          setServiceSearch('');
+                          setServiceError('');
+                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
+                        }}
+                        className="btn btn-primary"
+                      >
+                        <Plus size={16} />
+                        Nueva Enseñanza / Servicio
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                      <span className="text-secondary">📍 <strong>Municipio:</strong> {currentHouse.municipio || '—'}</span>
+                      <span className="text-secondary">🏠 <strong>Dirección:</strong> {currentHouse.address || '—'}</span>
+                      <span className="text-secondary">👤 <strong>Líder:</strong> {leader ? leader.full_name : '—'}</span>
+                      <span className="text-secondary">📖 <strong>Enseñanzas:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{meetingsForHouse.length}</strong></span>
+                      <span className="text-secondary">👥 <strong>Total Asistencias:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{totalAttendancesForHouse}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Listado de Enseñanzas Realizadas */}
+                  <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
+                      Enseñanzas Realizadas ({meetingsForHouse.length})
+                    </h3>
+                  </div>
+
+                  {meetingsForHouse.length === 0 ? (
+                    <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
+                      <BookOpen size={42} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                      <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay enseñanzas registradas</h4>
+                      <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Aún no se han registrado servicios ni enseñanzas para {currentHouse.name}.</p>
+                      <button
+                        onClick={() => {
+                          setServiceForm({
+                            topic: '',
+                            date: new Date().toISOString().split('T')[0],
+                            start_time: '19:00',
+                            end_time: '20:30',
+                            attendeeIds: [],
+                          });
+                          setServiceSearch('');
+                          setServiceError('');
+                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
+                        }}
+                        className="btn btn-primary"
+                      >
+                        <Plus size={16} />
+                        Registrar Primera Enseñanza
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Fecha</th>
+                            <th>Horario</th>
+                            <th>Tema / Enseñanza</th>
+                            <th style={{ textAlign: 'center' }}>Asistentes</th>
+                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {meetingsForHouse.map(meeting => {
+                            const attendeesForMeeting = attendances.filter(a => a.meeting_id === meeting.id);
+                            const meetingDate = new Date(meeting.date + 'T12:00:00Z');
+                            const dateString = meetingDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const dayName = meetingDate.toLocaleDateString('es-ES', { weekday: 'short' });
+
+                            return (
+                              <tr key={meeting.id}>
+                                <td style={{ whiteSpace: 'nowrap' }} suppressHydrationWarning>
+                                  <strong>{dateString}</strong>
+                                  <span className="text-muted" style={{ fontSize: '0.75rem', display: 'block', textTransform: 'capitalize' }}>
+                                    {dayName}
+                                  </span>
+                                </td>
+                                <td className="text-secondary" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                                  {meeting.start_time && meeting.end_time ? `${meeting.start_time} - ${meeting.end_time}` : meeting.start_time || '—'}
+                                </td>
+                                <td>
+                                  <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                                    {meeting.topic || 'Sin título'}
+                                  </strong>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span style={{
+                                    background: 'var(--bg-card-hover)',
+                                    border: '1px solid var(--border-gold)',
+                                    padding: '0.25rem 0.75rem',
+                                    borderRadius: '12px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    color: 'var(--gold-primary)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem'
+                                  }}>
+                                    <Users size={12} />
+                                    {attendeesForMeeting.length}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                                    <button
+                                      onClick={() => {
+                                        setMeetingToManage(meeting);
+                                        setMeetingSearchMember('');
+                                      }}
+                                      className="btn btn-secondary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', gap: '0.35rem' }}
+                                      title="Gestionar Asistentes (Añadir / Borrar)"
+                                    >
+                                      <Users size={14} />
+                                      Asistentes
+                                    </button>
+                                    <button
+                                      onClick={() => setMeetingToDelete(meeting)}
+                                      className="btn btn-danger btn-icon"
+                                      style={{ width: '32px', height: '32px' }}
+                                      title="Borrar Enseñanza"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2508,6 +2786,249 @@ export default function DashboardClient({ profile }: Props) {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
               <button onClick={() => setHistoryModal({ open: false })} className="btn btn-secondary">
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Manage Meeting Attendees Modal ── */}
+      {meetingToManage && (
+        <Modal
+          title={`Gestionar Asistentes`}
+          onClose={() => {
+            setMeetingToManage(null);
+            setFastNewMemberOpen(false);
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxHeight: '70vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-secondary)', padding: '0.85rem 1rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-subtle)' }}>
+              <p style={{ fontWeight: 700, color: 'var(--gold-primary)', fontSize: '1rem', marginBottom: '0.2rem' }}>
+                📖 {meetingToManage.topic || 'Sin título'}
+              </p>
+              <p className="text-secondary" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
+                📅 {new Date(meetingToManage.date + 'T12:00:00Z').toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                {meetingToManage.start_time && ` • ⏰ ${meetingToManage.start_time} ${meetingToManage.end_time ? `- ${meetingToManage.end_time}` : ''}`}
+              </p>
+            </div>
+
+            {fastNewMemberOpen ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-card-hover)', padding: '1rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-gold)' }}>
+                <h4 style={{ fontSize: '0.95rem', color: 'var(--gold-primary)', margin: 0 }}>Registrar Asistente Rápido</h4>
+                <div className="form-group">
+                  <label className="form-label">Nombre Completo *</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Ej. Carmen Rodríguez"
+                    value={fastMemberForm.full_name}
+                    onChange={(e) => setFastMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                    autoFocus
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Teléfono (Opcional)</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Ej. 0412-1234567"
+                    value={fastMemberForm.phone}
+                    onChange={(e) => setFastMemberForm(f => ({ ...f, phone: e.target.value }))}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setFastNewMemberOpen(false)} className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={saveFastMember} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} disabled={savingFastMember || !fastMemberForm.full_name.trim()}>
+                    {savingFastMember ? 'Guardando...' : 'Crear y Añadir'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 1. Asistentes Actuales */}
+            <div>
+              {(() => {
+                const meetingAttendeeIds = attendances
+                  .filter(a => a.meeting_id === meetingToManage.id)
+                  .map(a => a.member_id);
+                const attendingMembers = members.filter(m => meetingAttendeeIds.includes(m.id));
+
+                return (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <label className="form-label" style={{ margin: 0 }}>
+                        Asistentes Registrados ({attendingMembers.length})
+                      </label>
+                      <button
+                        onClick={() => {
+                          setFastMemberForm(emptyFastMember);
+                          setFastNewMemberOpen(true);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                      >
+                        + Asistente Rápido
+                      </button>
+                    </div>
+
+                    {attendingMembers.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 'var(--border-radius)' }}>
+                        No hay asistentes registrados para esta enseñanza.
+                      </p>
+                    ) : (
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--border-radius)', padding: '0.5rem' }}>
+                        {attendingMembers.map(m => (
+                          <div
+                            key={m.id}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '0.4rem 0.6rem',
+                              background: 'var(--bg-card-hover)',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-subtle)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div className="avatar-placeholder" style={{ width: 28, height: 28, fontSize: '0.7rem' }}>
+                                {m.full_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{m.full_name}</span>
+                                {m.phone && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.5rem' }}>{m.phone}</span>}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => removeAttendee(meetingToManage.id, m.id)}
+                              disabled={removingAttendeeId === m.id}
+                              className="btn btn-danger btn-icon"
+                              style={{ width: '28px', height: '28px', padding: 0 }}
+                              title="Retirar de la asistencia"
+                            >
+                              {removingAttendeeId === m.id ? (
+                                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : (
+                                <X size={14} />
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="divider" style={{ height: '1px', background: 'var(--border-subtle)' }} />
+
+            {/* 2. Añadir Más Miembros */}
+            <div>
+              <label className="form-label" style={{ marginBottom: '0.5rem' }}>
+                Añadir Más Miembros a esta Enseñanza
+              </label>
+              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Buscar por nombre para añadir..."
+                  value={meetingSearchMember}
+                  onChange={(e) => setMeetingSearchMember(e.target.value)}
+                />
+              </div>
+
+              {(() => {
+                const meetingAttendeeIds = attendances
+                  .filter(a => a.meeting_id === meetingToManage.id)
+                  .map(a => a.member_id);
+                const notAttendingMembers = members.filter(m => !meetingAttendeeIds.includes(m.id));
+                const filteredNotAttending = meetingSearchMember.trim()
+                  ? notAttendingMembers.filter(m => m.full_name.toLowerCase().includes(meetingSearchMember.toLowerCase()) || (m.phone ?? '').includes(meetingSearchMember))
+                  : notAttendingMembers.slice(0, 15);
+
+                if (filteredNotAttending.length === 0) {
+                  return (
+                    <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem' }}>
+                      {notAttendingMembers.length === 0 ? 'Todos los miembros registrados ya están en la asistencia.' : 'No se encontraron miembros disponibles con esa búsqueda.'}
+                    </p>
+                  );
+                }
+
+                return (
+                  <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--border-radius)', padding: '0.5rem' }}>
+                    {filteredNotAttending.map(m => (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '0.4rem 0.6rem',
+                          borderRadius: '6px',
+                          background: 'var(--bg-secondary)'
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-primary)' }}>{m.full_name}</span>
+                          {m.phone && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.5rem' }}>{m.phone}</span>}
+                        </div>
+                        <button
+                          onClick={() => addAttendee(meetingToManage.id, m.id)}
+                          disabled={addingAttendee}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', gap: '0.25rem' }}
+                        >
+                          <Plus size={12} />
+                          Añadir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => {
+                  setMeetingToManage(null);
+                  setFastNewMemberOpen(false);
+                }}
+                className="btn btn-secondary"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete Meeting Confirmation Modal ── */}
+      {meetingToDelete && (
+        <Modal
+          title="Eliminar Enseñanza"
+          onClose={() => setMeetingToDelete(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', lineHeight: 1.5 }}>
+              ¿Estás seguro de que deseas eliminar la enseñanza <strong>"{meetingToDelete.topic || 'Sin título'}"</strong> realizada el <strong>{formatearFechaCorta(meetingToDelete.date)}</strong>?
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              ⚠️ Esta acción eliminará permanentemente la enseñanza y todas las asistencias vinculadas a este servicio.
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setMeetingToDelete(null)} className="btn btn-secondary">
+                Cancelar
+              </button>
+              <button
+                onClick={() => deleteMeeting(meetingToDelete.id)}
+                className="btn btn-danger"
+              >
+                <Trash2 size={15} />
+                Sí, Eliminar Enseñanza
               </button>
             </div>
           </div>
