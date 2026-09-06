@@ -337,6 +337,15 @@ export default function DashboardClient({ profile }: Props) {
   const [selectedServiceHouseId, setSelectedServiceHouseId] = useState<string>('');
   const [meetingToManage, setMeetingToManage] = useState<HouseGroupMeeting | null>(null);
   const [meetingToDelete, setMeetingToDelete] = useState<HouseGroupMeeting | null>(null);
+  const [editingMeeting, setEditingMeeting] = useState<HouseGroupMeeting | null>(null);
+  const [editMeetingForm, setEditMeetingForm] = useState({
+    topic: '',
+    date: '',
+    start_time: '',
+    end_time: '',
+  });
+  const [savingEditMeeting, setSavingEditMeeting] = useState(false);
+  const [editMeetingError, setEditMeetingError] = useState('');
   const [meetingSearchMember, setMeetingSearchMember] = useState<string>('');
   const [addingAttendee, setAddingAttendee] = useState(false);
   const [removingAttendeeId, setRemovingAttendeeId] = useState<string | null>(null);
@@ -756,9 +765,47 @@ export default function DashboardClient({ profile }: Props) {
       if (meetingToManage?.id === meetingId) {
         setMeetingToManage(null);
       }
+      if (editingMeeting?.id === meetingId) {
+        setEditingMeeting(null);
+      }
       fetchCasasData();
     } catch (err: any) {
       showToast(err.message || 'Error al eliminar enseñanza.', 'error');
+    }
+  }
+
+  async function saveEditMeeting() {
+    if (!editingMeeting) return;
+    if (!editMeetingForm.topic.trim()) {
+      setEditMeetingError('El título o tema de la enseñanza es requerido.');
+      return;
+    }
+    if (!editMeetingForm.date) {
+      setEditMeetingError('La fecha es requerida.');
+      return;
+    }
+    setSavingEditMeeting(true);
+    setEditMeetingError('');
+    try {
+      const { error } = await supabase
+        .from('house_group_meetings')
+        .update({
+          topic: editMeetingForm.topic.trim(),
+          date: editMeetingForm.date,
+          start_time: editMeetingForm.start_time || null,
+          end_time: editMeetingForm.end_time || null,
+        })
+        .eq('id', editingMeeting.id);
+
+      if (error) throw error;
+
+      showToast('Enseñanza actualizada correctamente.');
+      setEditingMeeting(null);
+      fetchCasasData();
+    } catch (err: any) {
+      setEditMeetingError(err.message || 'Error al actualizar la enseñanza.');
+    } finally {
+      setSavingEditMeeting(false);
     }
   }
 
@@ -2033,6 +2080,23 @@ export default function DashboardClient({ profile }: Props) {
                                       Asistentes
                                     </button>
                                     <button
+                                      onClick={() => {
+                                        setEditingMeeting(meeting);
+                                        setEditMeetingForm({
+                                          topic: meeting.topic || '',
+                                          date: meeting.date || '',
+                                          start_time: meeting.start_time || '',
+                                          end_time: meeting.end_time || '',
+                                        });
+                                        setEditMeetingError('');
+                                      }}
+                                      className="btn btn-secondary btn-icon"
+                                      style={{ width: '32px', height: '32px' }}
+                                      title="Editar Título y Fecha"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button
                                       onClick={() => setMeetingToDelete(meeting)}
                                       className="btn btn-danger btn-icon"
                                       style={{ width: '32px', height: '32px' }}
@@ -3029,6 +3093,77 @@ export default function DashboardClient({ profile }: Props) {
               >
                 <Trash2 size={15} />
                 Sí, Eliminar Enseñanza
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Edit Meeting Modal ── */}
+      {editingMeeting && (
+        <Modal
+          title="Editar Enseñanza / Servicio"
+          onClose={() => setEditingMeeting(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div className="form-group">
+              <label className="form-label">Título de la Enseñanza *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Ej. El poder de la oración"
+                value={editMeetingForm.topic}
+                onChange={(e) => setEditMeetingForm(f => ({ ...f, topic: e.target.value }))}
+                autoFocus
+              />
+            </div>
+
+            <div className="grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">Fecha *</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={editMeetingForm.date}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, date: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hora Inicio</label>
+                <input
+                  className="form-input"
+                  type="time"
+                  value={editMeetingForm.start_time}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, start_time: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hora Fin</label>
+                <input
+                  className="form-input"
+                  type="time"
+                  value={editMeetingForm.end_time}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, end_time: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {editMeetingError && <p className="form-error">{editMeetingError}</p>}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => setEditingMeeting(null)}
+                className="btn btn-secondary"
+                disabled={savingEditMeeting}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveEditMeeting}
+                className="btn btn-primary"
+                disabled={savingEditMeeting || !editMeetingForm.topic.trim() || !editMeetingForm.date}
+              >
+                {savingEditMeeting ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
           </div>
