@@ -1,5 +1,19 @@
 export type Role = 'principal' | 'admin' | 'user';
 
+export const MUNICIPIOS_NUEVA_ESPARTA = [
+  'Antolín del Campo',
+  'Arismendi',
+  'Díaz',
+  'García',
+  'Gómez',
+  'Maneiro',
+  'Marcano',
+  'Mariño',
+  'Península de Macanao',
+  'Tubores',
+  'Villalba',
+] as const;
+
 export interface Profile {
   id: string;
   username: string;
@@ -14,6 +28,7 @@ export interface Profile {
 export interface Member {
   id: string;
   full_name: string;
+  gender: 'Masculino' | 'Femenino' | null;
   age: number | null;
   city: string | null;
   municipio: string | null;
@@ -35,6 +50,7 @@ export interface HouseGroup {
   id: string;
   name: string;
   address: string | null;
+  municipio: string | null;
   leader_id: string | null;
   created_at: string;
 }

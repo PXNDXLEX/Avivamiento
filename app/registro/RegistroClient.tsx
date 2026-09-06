@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
-import type { Profile, Member, HouseGroup } from '@/lib/types';
+import type { Profile, Member } from '@/lib/types';
+import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
 import { normalizarCiudad, formatearFecha, getRandomVersiculo } from '@/lib/utils';
 import {
   LogOut,
@@ -40,7 +41,6 @@ export default function RegistroClient({ profile }: Props) {
   const supabase = createClient();
 
   const [members, setMembers] = useState<Member[]>([]);
-  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [versiculo, setVersiculo] = useState({ texto: '', referencia: '' });
   const [mounted, setMounted] = useState(false);
@@ -54,12 +54,12 @@ export default function RegistroClient({ profile }: Props) {
   const emptyForm = {
     full_name: '',
     age: '',
+    gender: '' as string,
     city: '',
     municipio: '',
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
-    house_group_id: '',
   };
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -81,10 +81,7 @@ export default function RegistroClient({ profile }: Props) {
     setTimeout(() => setToast(null), 3500);
   }
 
-  const fetchHouseGroups = useCallback(async () => {
-    const { data } = await supabase.from('house_groups').select('*').order('name');
-    if (data) setHouseGroups(data);
-  }, [supabase]);
+
 
   /* Fetch own members */
   const fetchMembers = useCallback(async () => {
@@ -101,8 +98,7 @@ export default function RegistroClient({ profile }: Props) {
 
   useEffect(() => {
     fetchMembers();
-    fetchHouseGroups();
-  }, [fetchMembers, fetchHouseGroups]);
+  }, [fetchMembers]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -115,12 +111,12 @@ export default function RegistroClient({ profile }: Props) {
     setForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
+      gender: member.gender ?? '',
       city: member.city ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
-      house_group_id: member.house_group_id ?? '',
     });
     setEditingId(member.id);
     setShowFormModal(true);
@@ -140,12 +136,13 @@ export default function RegistroClient({ profile }: Props) {
     const payload = {
       full_name: form.full_name.trim(),
       age: form.age ? parseInt(form.age) : null,
+      gender: form.gender || null,
       city: form.city ? normalizarCiudad(form.city) : null,
-      municipio: form.municipio ? normalizarCiudad(form.municipio) : null,
+      municipio: form.municipio || null,
       address: form.address || null,
       phone: form.phone || null,
       status: form.status,
-      house_group_id: form.house_group_id || null,
+      house_group_id: null,
     };
 
     try {
@@ -229,7 +226,25 @@ export default function RegistroClient({ profile }: Props) {
           />
         </div>
         <div className="form-group">
-          <label htmlFor="status" className="form-label">Estado</label>
+          <label htmlFor="gender" className="form-label">Género</label>
+          <select
+            id="gender"
+            className="form-select"
+            value={form.gender}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, gender: e.target.value }))
+            }
+          >
+            <option value="">-- Seleccionar --</option>
+            <option>Masculino</option>
+            <option>Femenino</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid-2">
+        <div className="form-group">
+          <label htmlFor="status" className="form-label">Miembro</label>
           <select
             id="status"
             className="form-select"
@@ -248,38 +263,23 @@ export default function RegistroClient({ profile }: Props) {
         </div>
       </div>
 
-      <div className="form-group">
-        <label htmlFor="house_group_id" className="form-label">Casa de Dios</label>
-        <select
-          id="house_group_id"
-          className="form-select"
-          value={form.house_group_id}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, house_group_id: e.target.value }))
-          }
-        >
-          <option value="">Sin asignar</option>
-          {houseGroups.map((hg) => (
-            <option key={hg.id} value={hg.id}>
-              {hg.name}
-            </option>
-          ))}
-        </select>
-      </div>
 
       <div className="grid-2">
         <div className="form-group">
           <label htmlFor="municipio" className="form-label">Municipio</label>
-          <input
+          <select
             id="municipio"
-            className="form-input"
-            type="text"
-            placeholder="Maneiro"
+            className="form-select"
             value={form.municipio}
             onChange={(e) =>
               setForm((f) => ({ ...f, municipio: e.target.value }))
             }
-          />
+          >
+            <option value="">-- Seleccionar --</option>
+            {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
         </div>
 
         <div className="form-group">

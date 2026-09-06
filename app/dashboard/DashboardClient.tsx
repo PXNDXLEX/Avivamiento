@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
+import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
 import { formatearFecha, normalizarCiudad, getRandomVersiculo } from '@/lib/utils';
 import {
   BarChart,
@@ -213,6 +214,12 @@ export default function DashboardClient({ profile }: Props) {
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
+  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
+
+  /* Asignar Miembros state */
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignSelectedCasa, setAssignSelectedCasa] = useState('');
+  const [assigningMember, setAssigningMember] = useState<string | null>(null);
 
   /* Date Filter */
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
@@ -247,12 +254,12 @@ export default function DashboardClient({ profile }: Props) {
   const emptyMemberForm = {
     full_name: '',
     age: '',
+    gender: '' as string,
     city: '',
     municipio: '',
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
-    house_group_id: '',
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
@@ -282,6 +289,7 @@ export default function DashboardClient({ profile }: Props) {
   const emptyCasaForm = {
     name: '',
     address: '',
+    municipio: '',
     leader_id: '',
   };
   const [casaForm, setCasaForm] = useState(emptyCasaForm);
@@ -500,12 +508,12 @@ export default function DashboardClient({ profile }: Props) {
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
+      gender: member.gender ?? '',
       city: member.city ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
-      house_group_id: member.house_group_id ?? '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -522,12 +530,13 @@ export default function DashboardClient({ profile }: Props) {
     const payload = {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
+      gender: memberForm.gender || null,
       city: memberForm.city ? normalizarCiudad(memberForm.city) : null,
-      municipio: memberForm.municipio ? normalizarCiudad(memberForm.municipio) : null,
+      municipio: memberForm.municipio || null,
       address: memberForm.address || null,
       phone: memberForm.phone || null,
       status: memberForm.status,
-      house_group_id: memberForm.house_group_id || null,
+      house_group_id: null,
     };
 
     try {
@@ -629,6 +638,7 @@ export default function DashboardClient({ profile }: Props) {
     const payload = {
       name: casaForm.name.trim(),
       address: casaForm.address || null,
+      municipio: casaForm.municipio || null,
       leader_id: casaForm.leader_id || null,
     };
 
@@ -752,7 +762,7 @@ export default function DashboardClient({ profile }: Props) {
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: profile.role === 'user' ? 'Mis Grupos' : 'Grupos' },
+    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
@@ -1020,7 +1030,7 @@ export default function DashboardClient({ profile }: Props) {
                   <thead>
                     <tr>
                       <th>Nombre</th>
-                      <th>Estado</th>
+                      <th>Miembro</th>
                       <th>Ciudad</th>
                       <th>Teléfono</th>
                       <th>Consolidador</th>
@@ -1373,126 +1383,311 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Casas Tab ── */}
         {activeTab === 'casas' && (
           <div className="animate-fade-in">
-            {profile.role !== 'user' && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                <button
-                  onClick={() => {
-                    setCasaForm(emptyCasaForm);
-                    setCasaError('');
-                    setCasaModal({ open: true });
-                  }}
-                  className="btn btn-primary"
-                >
-                  <Plus size={16} />
-                  Nueva Casa de Dios
-                </button>
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+              <button
+                onClick={() => setCasasSubTab('gestionar')}
+                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Gestionar Casas
+              </button>
+              <button
+                onClick={() => setCasasSubTab('asignar')}
+                className={`btn ${casasSubTab === 'asignar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Asignar Miembros
+              </button>
+            </div>
+
+            {/* ── Sub-tab: Gestionar Casas ── */}
+            {casasSubTab === 'gestionar' && (
+              <div>
+                {profile.role !== 'user' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                    <button
+                      onClick={() => {
+                        setCasaForm(emptyCasaForm);
+                        setCasaError('');
+                        setCasaModal({ open: true });
+                      }}
+                      className="btn btn-primary"
+                    >
+                      <Plus size={16} />
+                      Nueva Casa de Dios
+                    </button>
+                  </div>
+                )}
+
+                {(() => {
+                  const visibleHouseGroups = profile.role === 'user'
+                    ? houseGroups.filter(hg => hg.leader_id === profile.id)
+                    : houseGroups;
+                  
+                  if (visibleHouseGroups.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No hay Casas de Dios registradas.</p>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Municipio</th>
+                            <th>Dirección</th>
+                            <th>Líder Asignado</th>
+                            <th>Registrada</th>
+                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleHouseGroups.map((casa) => {
+                            const leader = profiles.find((p) => p.id === casa.leader_id);
+                          return (
+                            <tr key={casa.id}>
+                              <td><strong>{casa.name}</strong></td>
+                              <td className="text-secondary">{casa.municipio || '—'}</td>
+                              <td className="text-secondary">{casa.address || '—'}</td>
+                              <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
+                              <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
+                                {formatearFecha(casa.created_at)}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      setServiceForm(emptyServiceForm);
+                                      setServiceSearch('');
+                                      setServiceError('');
+                                      setServiceModal({ open: true, houseGroupId: casa.id });
+                                    }}
+                                    className="btn btn-primary btn-icon"
+                                    title="Control de Servicio"
+                                  >
+                                    <BookOpen size={13} />
+                                  </button>
+                                  
+                                  <button
+                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                    className="btn btn-secondary btn-icon"
+                                    title="Historial de Servicios"
+                                  >
+                                    <CalendarDays size={13} />
+                                  </button>
+
+                                  {profile.role !== 'user' && (
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setCasaForm({
+                                            name: casa.name,
+                                            address: casa.address || '',
+                                            municipio: casa.municipio || '',
+                                            leader_id: casa.leader_id || '',
+                                          });
+                                          setCasaError('');
+                                          setCasaModal({ open: true, casa });
+                                        }}
+                                        className="btn btn-secondary btn-icon"
+                                        title="Editar"
+                                      >
+                                        <Edit2 size={13} />
+                                      </button>
+
+                                      {deleteCasaConfirm === casa.id ? (
+                                        <>
+                                          <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
+                                            <Check size={13} />
+                                          </button>
+                                          <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
+                                            <X size={13} />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
+                                          <Trash2 size={13} />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
-            {(() => {
-              const visibleHouseGroups = profile.role === 'user'
-                ? houseGroups.filter(hg => hg.leader_id === profile.id)
-                : houseGroups;
-              
-              if (visibleHouseGroups.length === 0) {
-                return (
-                  <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
-                    <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                    <p>No hay Casas de Dios registradas.</p>
+            {/* ── Sub-tab: Asignar Miembros ── */}
+            {casasSubTab === 'asignar' && (
+              <div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Buscar miembro</label>
+                    <div style={{ position: 'relative' }}>
+                      <Search
+                        size={15}
+                        style={{
+                          position: 'absolute',
+                          left: '1rem',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                      <input
+                        className="form-input"
+                        type="text"
+                        placeholder="Buscar por nombre..."
+                        value={assignSearch}
+                        onChange={(e) => setAssignSearch(e.target.value)}
+                        style={{ paddingLeft: '2.5rem' }}
+                      />
+                    </div>
                   </div>
-                );
-              }
-              
-              return (
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Dirección</th>
-                        <th>Líder Asignado</th>
-                        <th>Registrada</th>
-                        <th style={{ textAlign: 'center' }}>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleHouseGroups.map((casa) => {
-                        const leader = profiles.find((p) => p.id === casa.leader_id);
-                      return (
-                        <tr key={casa.id}>
-                          <td><strong>{casa.name}</strong></td>
-                          <td className="text-secondary">{casa.address || '—'}</td>
-                          <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
-                          <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
-                            {formatearFecha(casa.created_at)}
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                              <button
-                                onClick={() => {
-                                  setServiceForm(emptyServiceForm);
-                                  setServiceSearch('');
-                                  setServiceError('');
-                                  setServiceModal({ open: true, houseGroupId: casa.id });
-                                }}
-                                className="btn btn-primary btn-icon"
-                                title="Control de Servicio"
-                              >
-                                <BookOpen size={13} />
-                              </button>
-                              
-                              <button
-                                onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
-                                className="btn btn-secondary btn-icon"
-                                title="Historial de Servicios"
-                              >
-                                <CalendarDays size={13} />
-                              </button>
-
-                              {profile.role !== 'user' && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setCasaForm({
-                                        name: casa.name,
-                                        address: casa.address || '',
-                                        leader_id: casa.leader_id || '',
-                                      });
-                                      setCasaError('');
-                                      setCasaModal({ open: true, casa });
-                                    }}
-                                    className="btn btn-secondary btn-icon"
-                                    title="Editar"
-                                  >
-                                    <Edit2 size={13} />
-                                  </button>
-
-                                  {deleteCasaConfirm === casa.id ? (
-                                    <>
-                                      <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
-                                        <Check size={13} />
-                                      </button>
-                                      <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
-                                        <X size={13} />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
-                                      <Trash2 size={13} />
-                                    </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                      })}
-                    </tbody>
-                  </table>
+                  <div style={{ minWidth: '220px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Filtrar por Casa de Dios</label>
+                    <select
+                      className="form-select"
+                      value={assignSelectedCasa}
+                      onChange={(e) => setAssignSelectedCasa(e.target.value)}
+                    >
+                      <option value="">Todos los miembros</option>
+                      <option value="sin_asignar">🔴 Sin casa asignada</option>
+                      {houseGroups.map(hg => (
+                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              );
-            })()}
+
+                {(() => {
+                  let filteredAssignMembers = members.filter(m => {
+                    const q = assignSearch.toLowerCase();
+                    const matchSearch = !q || m.full_name.toLowerCase().includes(q);
+                    let matchCasa = true;
+                    if (assignSelectedCasa === 'sin_asignar') {
+                      matchCasa = !m.house_group_id;
+                    } else if (assignSelectedCasa) {
+                      matchCasa = m.house_group_id === assignSelectedCasa;
+                    }
+                    return matchSearch && matchCasa;
+                  });
+
+                  // Sort: sin asignar primero
+                  filteredAssignMembers.sort((a, b) => {
+                    if (!a.house_group_id && b.house_group_id) return -1;
+                    if (a.house_group_id && !b.house_group_id) return 1;
+                    return a.full_name.localeCompare(b.full_name);
+                  });
+
+                  if (filteredAssignMembers.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No se encontraron miembros.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Miembro</th>
+                            <th>Municipio</th>
+                            <th>Casa de Dios Actual</th>
+                            <th style={{ textAlign: 'center' }}>Asignar / Cambiar</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredAssignMembers.map((member) => {
+                            const currentCasa = houseGroups.find(hg => hg.id === member.house_group_id);
+                            return (
+                              <tr key={member.id}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                    <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
+                                      {member.full_name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span style={{ fontWeight: 600 }}>{member.full_name}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
+                                </td>
+                                <td className="text-secondary">{member.municipio || '—'}</td>
+                                <td>
+                                  {currentCasa ? (
+                                    <span style={{ color: 'var(--gold-primary)', fontWeight: 600 }}>{currentCasa.name}</span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin casa asignada</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
+                                    <select
+                                      className="form-select"
+                                      style={{ width: 'auto', padding: '0.4rem 2rem 0.4rem 0.75rem', fontSize: '0.82rem', minWidth: '160px' }}
+                                      value={member.house_group_id || ''}
+                                      disabled={assigningMember === member.id}
+                                      onChange={async (e) => {
+                                        const newCasaId = e.target.value || null;
+                                        setAssigningMember(member.id);
+                                        try {
+                                          const { error } = await supabase
+                                            .from('members')
+                                            .update({ house_group_id: newCasaId })
+                                            .eq('id', member.id);
+                                          if (error) throw error;
+                                          showToast(newCasaId ? 'Miembro asignado a Casa de Dios.' : 'Miembro desasignado.');
+                                          fetchMembers();
+                                        } catch (err) {
+                                          showToast('Error al asignar miembro.', 'error');
+                                        } finally {
+                                          setAssigningMember(null);
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Sin asignar</option>
+                                      {houseGroups.map(hg => (
+                                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                                      ))}
+                                    </select>
+                                    {assigningMember === member.id && (
+                                      <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--gold-primary)' }} />
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem', textAlign: 'right' }}>
+                        Mostrando {filteredAssignMembers.length} de {members.length} miembros
+                        {' • '}<strong style={{ color: 'var(--gold-primary)' }}>{members.filter(m => !m.house_group_id).length}</strong> sin casa asignada
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 
@@ -1691,7 +1886,24 @@ export default function DashboardClient({ profile }: Props) {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Estado</label>
+                <label className="form-label">Género</label>
+                <select
+                  className="form-select"
+                  value={memberForm.gender}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, gender: e.target.value }))
+                  }
+                >
+                  <option value="">-- Seleccionar --</option>
+                  <option>Masculino</option>
+                  <option>Femenino</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Miembro</label>
                 <select
                   className="form-select"
                   value={memberForm.status}
@@ -1709,25 +1921,25 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Casa de Dios</label>
-              <select
-                className="form-select"
-                value={memberForm.house_group_id}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
-                }
-              >
-                <option value="">Sin asignar</option>
-                {houseGroups.map((hg) => (
-                  <option key={hg.id} value={hg.id}>
-                    {hg.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Municipio</label>
+                <select
+                  className="form-select"
+                  value={memberForm.municipio}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, municipio: e.target.value }))
+                  }
+                >
+                  <option value="">-- Seleccionar --</option>
+                  {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Ciudad</label>
                 <input
@@ -1737,19 +1949,6 @@ export default function DashboardClient({ profile }: Props) {
                   value={memberForm.city}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, city: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Municipio</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Mariño"
-                  value={memberForm.municipio}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, municipio: e.target.value }))
                   }
                 />
               </div>
@@ -1931,6 +2130,20 @@ export default function DashboardClient({ profile }: Props) {
                 onChange={(e) => setCasaForm((f) => ({ ...f, name: e.target.value }))}
                 autoFocus
               />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Municipio</label>
+              <select
+                className="form-select"
+                value={casaForm.municipio}
+                onChange={(e) => setCasaForm((f) => ({ ...f, municipio: e.target.value }))}
+              >
+                <option value="">-- Seleccionar --</option>
+                {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
             </div>
 
             <div className="form-group">
