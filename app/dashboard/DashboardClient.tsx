@@ -83,7 +83,7 @@ const ROLE_LABELS: Record<Role, string> = {
   pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'services' | 'users' | 'equipo';
+type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -408,8 +408,8 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'services' || activeTab === 'equipo') fetchProfiles();
-    if (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'services') fetchCasasData();
+    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
+    if (activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
 
   /* ── Derived state ── */
@@ -951,11 +951,6 @@ export default function DashboardClient({ profile }: Props) {
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
-          {
-            key: 'services' as ActiveTab,
-            icon: <BookOpen size={15} />,
-            label: 'Control de Servicios',
-          },
           {
             key: 'users' as ActiveTab,
             icon: <Shield size={15} />,
@@ -1860,17 +1855,6 @@ export default function DashboardClient({ profile }: Props) {
                               <td>
                                 <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
                                   <button
-                                    onClick={() => {
-                                      setSelectedServiceHouseId(casa.id);
-                                      setActiveTab('services');
-                                    }}
-                                    className="btn btn-primary btn-icon"
-                                    title="Ir a Control de Servicios"
-                                  >
-                                    <BookOpen size={13} />
-                                  </button>
-                                  
-                                  <button
                                     onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
                                     className="btn btn-secondary btn-icon"
                                     title="Historial de Servicios"
@@ -2086,226 +2070,6 @@ export default function DashboardClient({ profile }: Props) {
             )}
           </div>
         )}
-
-        {/* ── Control de Servicios Tab (principal & admin only) ── */}
-        {activeTab === 'services' && (profile.role === 'principal' || profile.role === 'admin') && (
-          <div className="animate-fade-in">
-            {/* Header */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <h2 className="font-cinzel" style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <BookOpen size={22} style={{ color: 'var(--gold-primary)' }} />
-                Control de Servicios de Casas de Dios
-              </h2>
-              <p className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                Selecciona una Casa de Dios para gestionar sus enseñanzas, asistencias y participantes.
-              </p>
-            </div>
-
-            {houseGroups.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
-                <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay Casas de Dios registradas</h3>
-                <p>Primero debes registrar al menos una Casa de Dios desde el menú <strong>Casa de Dios</strong>.</p>
-              </div>
-            ) : (() => {
-              const currentHouseId = selectedServiceHouseId || houseGroups[0]?.id || '';
-              const currentHouse = houseGroups.find(h => h.id === currentHouseId) || houseGroups[0];
-              const meetingsForHouse = houseGroupMeetings
-                .filter(m => m.house_group_id === currentHouse.id)
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              const meetingIds = meetingsForHouse.map(m => m.id);
-              const totalAttendancesForHouse = attendances.filter(a => meetingIds.includes(a.meeting_id)).length;
-              const leader = profiles.find(p => p.id === currentHouse.leader_id);
-
-              return (
-                <div>
-                  {/* Selector de Casa de Dios & Resumen */}
-                  <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: '280px' }}>
-                        <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
-                          Seleccionar Casa:
-                        </label>
-                        <select
-                          className="form-select"
-                          style={{ maxWidth: '380px' }}
-                          value={currentHouse.id}
-                          onChange={(e) => setSelectedServiceHouseId(e.target.value)}
-                        >
-                          {houseGroups.map((hg) => (
-                            <option key={hg.id} value={hg.id}>
-                              {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          setServiceForm({
-                            topic: '',
-                            date: new Date().toISOString().split('T')[0],
-                            start_time: '19:00',
-                            end_time: '20:30',
-                            attendeeIds: [],
-                          });
-                          setServiceSearch('');
-                          setServiceError('');
-                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
-                        }}
-                        className="btn btn-primary"
-                      >
-                        <Plus size={16} />
-                        Nueva Enseñanza / Servicio
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                      <span className="text-secondary">📍 <strong>Municipio:</strong> {currentHouse.municipio || '—'}</span>
-                      <span className="text-secondary">🏠 <strong>Dirección:</strong> {currentHouse.address || '—'}</span>
-                      <span className="text-secondary">👤 <strong>Líder:</strong> {leader ? leader.full_name : '—'}</span>
-                      <span className="text-secondary">📖 <strong>Enseñanzas:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{meetingsForHouse.length}</strong></span>
-                      <span className="text-secondary">👥 <strong>Total Asistencias:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{totalAttendancesForHouse}</strong></span>
-                    </div>
-                  </div>
-
-                  {/* Listado de Enseñanzas Realizadas */}
-                  <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
-                      Enseñanzas Realizadas ({meetingsForHouse.length})
-                    </h3>
-                  </div>
-
-                  {meetingsForHouse.length === 0 ? (
-                    <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
-                      <BookOpen size={42} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                      <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay enseñanzas registradas</h4>
-                      <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Aún no se han registrado servicios ni enseñanzas para {currentHouse.name}.</p>
-                      <button
-                        onClick={() => {
-                          setServiceForm({
-                            topic: '',
-                            date: new Date().toISOString().split('T')[0],
-                            start_time: '19:00',
-                            end_time: '20:30',
-                            attendeeIds: [],
-                          });
-                          setServiceSearch('');
-                          setServiceError('');
-                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
-                        }}
-                        className="btn btn-primary"
-                      >
-                        <Plus size={16} />
-                        Registrar Primera Enseñanza
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="table-wrapper">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Fecha</th>
-                            <th>Horario</th>
-                            <th>Tema / Enseñanza</th>
-                            <th style={{ textAlign: 'center' }}>Asistentes</th>
-                            <th style={{ textAlign: 'center' }}>Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {meetingsForHouse.map(meeting => {
-                            const attendeesForMeeting = attendances.filter(a => a.meeting_id === meeting.id);
-                            const meetingDate = new Date(meeting.date + 'T12:00:00Z');
-                            const dateString = meetingDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
-                            const dayName = meetingDate.toLocaleDateString('es-ES', { weekday: 'short' });
-
-                            return (
-                              <tr key={meeting.id}>
-                                <td style={{ whiteSpace: 'nowrap' }} suppressHydrationWarning>
-                                  <strong>{dateString}</strong>
-                                  <span className="text-muted" style={{ fontSize: '0.75rem', display: 'block', textTransform: 'capitalize' }}>
-                                    {dayName}
-                                  </span>
-                                </td>
-                                <td className="text-secondary" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                                  {meeting.start_time && meeting.end_time ? `${meeting.start_time} - ${meeting.end_time}` : meeting.start_time || '—'}
-                                </td>
-                                <td>
-                                  <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                                    {meeting.topic || 'Sin título'}
-                                  </strong>
-                                </td>
-                                <td style={{ textAlign: 'center' }}>
-                                  <span style={{
-                                    background: 'var(--bg-card-hover)',
-                                    border: '1px solid var(--border-gold)',
-                                    padding: '0.25rem 0.75rem',
-                                    borderRadius: '12px',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    color: 'var(--gold-primary)',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.35rem'
-                                  }}>
-                                    <Users size={12} />
-                                    {attendeesForMeeting.length}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-                                    <button
-                                      onClick={() => {
-                                        setMeetingToManage(meeting);
-                                        setMeetingSearchMember('');
-                                      }}
-                                      className="btn btn-secondary"
-                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', gap: '0.35rem' }}
-                                      title="Gestionar Asistentes (Añadir / Borrar)"
-                                    >
-                                      <Users size={14} />
-                                      Asistentes
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setEditingMeeting(meeting);
-                                        setEditMeetingForm({
-                                          topic: meeting.topic || '',
-                                          date: meeting.date || '',
-                                          start_time: meeting.start_time || '',
-                                          end_time: meeting.end_time || '',
-                                        });
-                                        setEditMeetingError('');
-                                      }}
-                                      className="btn btn-secondary btn-icon"
-                                      style={{ width: '32px', height: '32px' }}
-                                      title="Editar Título y Fecha"
-                                    >
-                                      <Edit2 size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => setMeetingToDelete(meeting)}
-                                      className="btn btn-danger btn-icon"
-                                      style={{ width: '32px', height: '32px' }}
-                                      title="Borrar Enseñanza"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
