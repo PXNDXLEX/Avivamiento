@@ -665,10 +665,18 @@ export default function DashboardClient({ profile }: Props) {
     setUserError('');
     try {
       if (userModal.userId) {
-        await adminUpdateUser(userModal.userId, userForm);
+        const result = await adminUpdateUser(userModal.userId, userForm);
+        if (result && 'error' in result) {
+          setUserError(result.error);
+          return;
+        }
         showToast('Usuario actualizado exitosamente.');
       } else {
-        await adminCreateUser(userForm);
+        const result = await adminCreateUser(userForm);
+        if (result && 'error' in result) {
+          setUserError(result.error);
+          return;
+        }
         showToast('Usuario creado exitosamente.');
       }
       setUserModal({ open: false });
@@ -685,7 +693,11 @@ export default function DashboardClient({ profile }: Props) {
 
   async function updateRole(userId: string, role: Role) {
     try {
-      await adminUpdateUserRole(userId, role);
+      const result = await adminUpdateUserRole(userId, role);
+      if (result && 'error' in result) {
+        showToast(result.error, 'error');
+        return;
+      }
       showToast('Rol actualizado.');
       fetchProfiles();
     } catch {

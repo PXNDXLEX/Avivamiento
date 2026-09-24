@@ -35,12 +35,12 @@ export async function signOut() {
 
 /* ─── Guard: admin o principal ─────────────────────────────── */
 
-async function assertAdminOrPrincipal() {
+async function assertAdminOrPrincipal(): Promise<{ error: string } | null> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error('No autenticado');
+  if (!user) return { error: 'No autenticado' };
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -49,8 +49,10 @@ async function assertAdminOrPrincipal() {
     .single();
 
   if (profile?.role !== 'principal' && profile?.role !== 'admin') {
-    throw new Error('Sin permisos suficientes');
+    return { error: 'Sin permisos suficientes' };
   }
+
+  return null;
 }
 
 /* ─── USUARIOS (solo principal) ─────────────────────────── */
@@ -61,11 +63,11 @@ export async function adminCreateUser(data: {
   full_name: string;
   phone: string;
   role: Role;
-}) {
-  await assertAdminOrPrincipal();
+}): Promise<{ error: string } | void> {
+  const guardError = await assertAdminOrPrincipal();
+  if (guardError) return guardError;
 
   const admin = createAdminClient();
-
   const email = usernameToEmail(data.username);
 
   const { data: newUser, error } = await admin.auth.admin.createUser({
@@ -74,7 +76,7 @@ export async function adminCreateUser(data: {
     email_confirm: true,
   });
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
 
   const { error: profileError } = await admin.from('profiles').insert({
     id: newUser.user.id,
@@ -84,12 +86,17 @@ export async function adminCreateUser(data: {
     role: data.role,
   });
 
-  if (profileError) throw new Error(profileError.message);
+  if (profileError) return { error: profileError.message };
+
   revalidatePath('/dashboard');
 }
 
-export async function adminUpdateUserRole(userId: string, role: Role) {
-  await assertAdminOrPrincipal();
+export async function adminUpdateUserRole(
+  userId: string,
+  role: Role
+): Promise<{ error: string } | void> {
+  const guardError = await assertAdminOrPrincipal();
+  if (guardError) return guardError;
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -97,7 +104,7 @@ export async function adminUpdateUserRole(userId: string, role: Role) {
     .update({ role })
     .eq('id', userId);
 
-  if (error) throw new Error(error.message);
+  if (error) return { error: error.message };
   revalidatePath('/dashboard');
 }
 
@@ -110,8 +117,9 @@ export async function adminUpdateUser(
     phone?: string;
     role?: Role;
   }
-) {
-  await assertAdminOrPrincipal();
+): Promise<{ error: string } | void> {
+  const guardError = await assertAdminOrPrincipal();
+  if (guardError) return guardError;
 
   const admin = createAdminClient();
 
@@ -125,7 +133,7 @@ export async function adminUpdateUser(
       userId,
       authPayload
     );
-    if (authError) throw new Error(authError.message);
+    if (authError) return { error: authError.message };
   }
 
   // Update profile
@@ -140,7 +148,7 @@ export async function adminUpdateUser(
       .from('profiles')
       .update(profilePayload)
       .eq('id', userId);
-    if (profileError) throw new Error(profileError.message);
+    if (profileError) return { error: profileError.message };
   }
 
   revalidatePath('/dashboard');
