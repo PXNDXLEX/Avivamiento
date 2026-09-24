@@ -48,6 +48,8 @@ import {
   BookOpen,
   Activity,
   CalendarDays,
+  Phone,
+  MessageCircle,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -78,9 +80,10 @@ const ROLE_LABELS: Record<Role, string> = {
   principal: 'Principal',
   admin: 'Administrador',
   user: 'Consolidador',
+  pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'reports' | 'casas' | 'services' | 'users';
+type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'services' | 'users' | 'equipo';
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -225,7 +228,7 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
   const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -236,7 +239,7 @@ export default function DashboardClient({ profile }: Props) {
   const [assigningMember, setAssigningMember] = useState<string | null>(null);
 
   /* Date Filter */
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
 
   /* Daily Verse */
   const [versiculo, setVersiculo] = useState<{ texto: string; referencia: string } | null>(null);
@@ -374,7 +377,7 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   const fetchProfiles = useCallback(async () => {
-    if (profile.role !== 'principal' && profile.role !== 'admin') return;
+    if (profile.role !== 'principal' && profile.role !== 'admin' && profile.role !== 'pastor') return;
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -405,7 +408,7 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'services') fetchProfiles();
+    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'services' || activeTab === 'equipo') fetchProfiles();
     if (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'services') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
 
@@ -434,6 +437,8 @@ export default function DashboardClient({ profile }: Props) {
         matchDate = created >= startOfWeek;
       } else if (dateFilter === 'month') {
         matchDate = created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+      } else if (dateFilter === 'year') {
+        matchDate = created.getFullYear() === now.getFullYear();
       }
     }
 
@@ -500,7 +505,26 @@ export default function DashboardClient({ profile }: Props) {
   /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
   const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
 
-  houseGroupMeetings.forEach((meeting) => {
+  const filteredMeetings = houseGroupMeetings.filter(meeting => {
+    if (dateFilter === 'all') return true;
+    const meetingDate = new Date(meeting.date + 'T12:00:00Z');
+    const now = new Date();
+    if (dateFilter === 'today') {
+      return meetingDate.toDateString() === now.toDateString();
+    } else if (dateFilter === 'week') {
+      const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+      const startOfWeek = new Date(new Date().setDate(diff));
+      startOfWeek.setHours(0, 0, 0, 0);
+      return meetingDate >= startOfWeek;
+    } else if (dateFilter === 'month') {
+      return meetingDate.getMonth() === now.getMonth() && meetingDate.getFullYear() === now.getFullYear();
+    } else if (dateFilter === 'year') {
+      return meetingDate.getFullYear() === now.getFullYear();
+    }
+    return true;
+  });
+
+  filteredMeetings.forEach((meeting) => {
     const dateKey = meeting.date;
     const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
     if (!attendanceByDateAndHouse[dateKey]) {
@@ -610,6 +634,21 @@ export default function DashboardClient({ profile }: Props) {
       fetchMembers();
     }
     setDeleteConfirm(null);
+  }
+
+  async function toggleConsolidado(member: Member) {
+    try {
+      const newVal = !member.is_consolidated;
+      const { error } = await supabase
+        .from('members')
+        .update({ is_consolidated: newVal })
+        .eq('id', member.id);
+      if (error) throw error;
+      showToast(newVal ? 'Miembro marcado como consolidado.' : 'Marca de consolidado removida.');
+      fetchMembers();
+    } catch (err: any) {
+      showToast('Error al actualizar estado.', 'error');
+    }
   }
 
   /* ── User management ── */
@@ -889,9 +928,13 @@ export default function DashboardClient({ profile }: Props) {
   }
 
   /* ── Tabs config ── */
-  const tabs = [
+  const tabs = profile.role === 'pastor' ? [
+    { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
+  ] : [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
-    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
+    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
@@ -1008,6 +1051,7 @@ export default function DashboardClient({ profile }: Props) {
               <option value="today">📅 Hoy</option>
               <option value="week">📅 Esta Semana</option>
               <option value="month">📅 Este Mes</option>
+              <option value="year">📅 Este Año</option>
             </select>
           </div>
         </div>
@@ -1044,26 +1088,17 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Members Tab ── */}
         {activeTab === 'members' && (
           <div className="animate-fade-in">
-            {/* Toolbar */}
-            <div
-              style={{
-                display: 'flex',
-                gap: '0.75rem',
-                marginBottom: '1rem',
-                flexWrap: 'wrap',
-              }}
-            >
-              <div
-                style={{ flex: 1, minWidth: '200px', position: 'relative' }}
-              >
+            {/* Buscador optimizado de ancho completo */}
+            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
                 <Search
-                  size={15}
+                  size={18}
                   style={{
                     position: 'absolute',
-                    left: '1rem',
+                    left: '1.2rem',
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    color: 'var(--text-muted)',
+                    color: 'var(--gold-primary)',
                     pointerEvents: 'none',
                   }}
                 />
@@ -1071,13 +1106,31 @@ export default function DashboardClient({ profile }: Props) {
                   className="form-input"
                   id="member-search"
                   type="text"
-                  placeholder="Buscar por nombre, ciudad o consolidador..."
+                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ paddingLeft: '2.5rem' }}
+                  style={{ 
+                    padding: '0.8rem 1rem 0.8rem 3rem', 
+                    fontSize: '1rem', 
+                    width: '100%',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-gold)',
+                    background: 'var(--bg-secondary)',
+                  }}
                 />
               </div>
+            </div>
 
+            {/* Toolbar secundaria (Filtros y Acción) */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                marginBottom: '1.5rem',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+              }}
+            >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 {['all', 'Nuevo', 'Reconciliado', 'Visitante'].map((s) => (
                   <button
@@ -1278,6 +1331,128 @@ export default function DashboardClient({ profile }: Props) {
                 Mostrando {filteredMembers.length} de {members.length} miembros
               </p>
             )}
+          </div>
+        )}
+
+        {/* ── Seguimiento Tab ── */}
+        {activeTab === 'seguimiento' && (
+          <div className="animate-fade-in">
+            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
+              Gestión y Seguimiento de Llamadas
+            </h2>
+            
+            {/* Buscador optimizado de ancho completo */}
+            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
+              <div style={{ position: 'relative', width: '100%' }}>
+                <Search
+                  size={18}
+                  style={{
+                    position: 'absolute',
+                    left: '1.2rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--gold-primary)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ 
+                    padding: '0.8rem 1rem 0.8rem 3rem', 
+                    fontSize: '1rem', 
+                    width: '100%',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-gold)',
+                    background: 'var(--bg-secondary)',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.5rem' }}>
+              {filteredMembers.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                  <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                  <p>No hay miembros asignados para hacer seguimiento.</p>
+                </div>
+              ) : (
+                <div className="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Miembro</th>
+                        <th>Teléfono</th>
+                        <th style={{ textAlign: 'center' }}>WhatsApp</th>
+                        <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredMembers.map((member) => (
+                        <tr key={member.id}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                              <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
+                                {member.full_name.charAt(0).toUpperCase()}
+                              </div>
+                              <span style={{ fontWeight: 600 }}>{member.full_name}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
+                          </td>
+                          <td className="text-secondary">{member.phone || '—'}</td>
+                          <td>
+                            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                              {member.phone ? (
+                                <a
+                                  href={`https://wa.me/${member.phone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(member.full_name)},%20te%20escribimos%20de%20la%20Iglesia%20Avivamiento%20León%20de%20la%20Tribu%20de%20Judá`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn btn-primary btn-icon"
+                                  style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
+                                  title="Enviar WhatsApp"
+                                >
+                                  <MessageCircle size={14} />
+                                </a>
+                              ) : (
+                                <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                              {member.is_consolidated ? (
+                                <button
+                                  onClick={() => toggleConsolidado(member)}
+                                  className="btn btn-secondary"
+                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: '#10b981', borderColor: '#10b981' }}
+                                >
+                                  <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
+                                  Consolidado
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => toggleConsolidado(member)}
+                                  className="btn btn-secondary"
+                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                                >
+                                  Marcar Consolidado
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -2249,6 +2424,7 @@ export default function DashboardClient({ profile }: Props) {
                           <option value="principal">Principal</option>
                           <option value="admin">Administrador</option>
                           <option value="user">Consolidador</option>
+                          <option value="pastor">Pastor</option>
                         </select>
                       )}
                       <button
@@ -2273,6 +2449,61 @@ export default function DashboardClient({ profile }: Props) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+        {/* ── Equipo Tab (pastor) ── */}
+        {activeTab === 'equipo' && profile.role === 'pastor' && (
+          <div className="animate-fade-in">
+            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
+              Equipo de Trabajo
+            </h2>
+            <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+              
+              {/* Lista de Consolidadores */}
+              <div className="card" style={{ padding: '1.5rem' }}>
+                <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
+                  Lista de Consolidadores
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {profiles.filter(p => p.role === 'user').map(p => (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div className="avatar-placeholder" style={{ width: 32, height: 32 }}>
+                        {p.full_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{p.full_name}</p>
+                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{p.phone || 'Sin teléfono'}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {profiles.filter(p => p.role === 'user').length === 0 && (
+                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay consolidadores registrados.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Lista de Líderes */}
+              <div className="card" style={{ padding: '1.5rem' }}>
+                <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
+                  Lista de Líderes
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {houseGroups.map(hg => {
+                    const leader = profiles.find(p => p.id === hg.leader_id);
+                    return (
+                      <div key={hg.id} style={{ display: 'flex', flexDirection: 'column', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{leader ? leader.full_name : 'Sin líder asignado'}</p>
+                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{hg.name} • {hg.municipio || 'Sin municipio'}</p>
+                      </div>
+                    );
+                  })}
+                  {houseGroups.length === 0 && (
+                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay Casas de Dios registradas.</p>
+                  )}
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
       </main>
@@ -2498,6 +2729,7 @@ export default function DashboardClient({ profile }: Props) {
                 <option value="user">Consolidador</option>
                 <option value="admin">Administrador</option>
                 <option value="principal">Principal</option>
+                <option value="pastor">Pastor (Solo lectura)</option>
               </select>
             </div>
 
