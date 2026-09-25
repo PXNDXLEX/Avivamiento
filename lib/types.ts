@@ -23,6 +23,7 @@ export interface Profile {
   role: Role;
   created_at: string;
   deleted_at: string | null;
+  last_seen_at?: string | null;
 }
 
 export interface Member {

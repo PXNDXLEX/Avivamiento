@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
+import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
 import { formatearFecha, formatearFechaCorta, getRandomVersiculo } from '@/lib/utils';
@@ -54,6 +54,8 @@ import {
   Bell,
   Send,
   Copy,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -88,6 +90,55 @@ const ROLE_LABELS: Record<Role, string> = {
 };
 
 type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
+
+const TWENTY_MINUTES_MS = 20 * 60 * 1000;
+
+function getUserOnlineStatus(lastSeenAt?: string | null): {
+  isOnline: boolean;
+  label: string;
+  timeFormatted: string;
+} {
+  if (!lastSeenAt) {
+    return {
+      isOnline: false,
+      label: 'Desconectado',
+      timeFormatted: 'Sin registro',
+    };
+  }
+
+  const lastSeenDate = new Date(lastSeenAt);
+  const now = new Date();
+  const diffMs = now.getTime() - lastSeenDate.getTime();
+
+  if (isNaN(diffMs)) {
+    return {
+      isOnline: false,
+      label: 'Desconectado',
+      timeFormatted: 'Desconocido',
+    };
+  }
+
+  const isOnline = diffMs >= 0 && diffMs < TWENTY_MINUTES_MS;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
+  const diffHours = Math.floor(diffMinutes / 60);
+
+  let timeFormatted = '';
+  if (diffMinutes < 1) {
+    timeFormatted = 'Ahora mismo';
+  } else if (diffMinutes < 60) {
+    timeFormatted = `Hace ${diffMinutes} min`;
+  } else if (diffHours < 24) {
+    timeFormatted = `Hoy a las ${lastSeenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } else {
+    timeFormatted = `${lastSeenDate.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${lastSeenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  return {
+    isOnline,
+    label: isOnline ? 'En línea' : 'Desconectado',
+    timeFormatted,
+  };
+}
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -309,6 +360,9 @@ export default function DashboardClient({ profile }: Props) {
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [savingUser, setSavingUser] = useState(false);
   const [userError, setUserError] = useState('');
+  const [deleteUserConfirm, setDeleteUserConfirm] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [showTeamStatus, setShowTeamStatus] = useState(false);
 
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -395,6 +449,75 @@ export default function DashboardClient({ profile }: Props) {
     if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
     if (activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
+
+  /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
+  const lastActivityRecordedRef = useRef<number>(0);
+
+  const recordActivity = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastActivityRecordedRef.current < 45000) {
+      return;
+    }
+    lastActivityRecordedRef.current = now;
+
+    try {
+      await supabase
+        .from('profiles')
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq('id', profile.id);
+    } catch {
+      // Silenciar si la columna no existe aún
+    }
+  }, [profile.id, supabase]);
+
+  useEffect(() => {
+    recordActivity(true);
+
+    const handleInteraction = () => {
+      recordActivity();
+    };
+
+    window.addEventListener('click', handleInteraction, { passive: true });
+    window.addEventListener('keydown', handleInteraction, { passive: true });
+    window.addEventListener('touchstart', handleInteraction, { passive: true });
+    window.addEventListener('scroll', handleInteraction, { passive: true });
+
+    const heartbeat = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        recordActivity(true);
+      }
+    }, 2 * 60 * 1000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        recordActivity(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('keydown', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('scroll', handleInteraction);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(heartbeat);
+    };
+  }, [recordActivity]);
+
+  useEffect(() => {
+    recordActivity(true);
+  }, [activeTab, recordActivity]);
+
+  useEffect(() => {
+    if (profile.role !== 'principal' && profile.role !== 'admin') return;
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchProfiles();
+      }
+    }, 45000);
+    return () => clearInterval(interval);
+  }, [profile.role, fetchProfiles]);
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
@@ -711,6 +834,29 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
+  async function handleDeleteUser(userId: string) {
+    if (profile.role !== 'principal') {
+      showToast('Solo el Principal puede eliminar usuarios.', 'error');
+      return;
+    }
+    setDeletingUserId(userId);
+    try {
+      const result = await adminDeleteUser(userId);
+      if (result && 'error' in result) {
+        showToast(result.error, 'error');
+        return;
+      }
+      showToast('Usuario eliminado permanentemente.');
+      setDeleteUserConfirm(null);
+      fetchProfiles();
+      fetchMembers();
+    } catch (err: any) {
+      showToast(err?.message || 'Error al eliminar usuario.', 'error');
+    } finally {
+      setDeletingUserId(null);
+    }
+  }
+
   /* ── Casas management ── */
   async function saveCasa() {
     if (!casaForm.name.trim()) {
@@ -977,16 +1123,216 @@ export default function DashboardClient({ profile }: Props) {
                 ))}
               </div>
 
-              <button
-                onClick={openAddMember}
-                className="btn btn-primary"
-                id="add-member-btn"
-                style={{ whiteSpace: 'nowrap' }}
-              >
-                <Plus size={16} />
-                Agregar Miembro
-              </button>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {(profile.role === 'principal' || profile.role === 'admin') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTeamStatus((prev) => !prev)}
+                    className={`btn ${showTeamStatus ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{
+                      padding: '0.55rem 0.85rem',
+                      fontSize: '0.8rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                    }}
+                    id="toggle-team-status-btn"
+                    title="Ver estado de conexión del equipo"
+                  >
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        backgroundColor: profiles.some((p) => getUserOnlineStatus(p.last_seen_at).isOnline)
+                          ? '#10b981'
+                          : '#6b7280',
+                        boxShadow: profiles.some((p) => getUserOnlineStatus(p.last_seen_at).isOnline)
+                          ? '0 0 6px #10b981'
+                          : 'none',
+                        display: 'inline-block',
+                      }}
+                    />
+                    <span>
+                      Equipo ({profiles.filter((p) => getUserOnlineStatus(p.last_seen_at).isOnline).length} en línea)
+                    </span>
+                    {showTeamStatus ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                )}
+
+                <button
+                  onClick={openAddMember}
+                  className="btn btn-primary"
+                  id="add-member-btn"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  <Plus size={16} />
+                  Agregar Miembro
+                </button>
+              </div>
             </div>
+
+            {/* Panel de Estado de Conexión del Equipo (solo admin y principal) */}
+            {showTeamStatus && (profile.role === 'principal' || profile.role === 'admin') && (
+              <div
+                className="card animate-fade-in"
+                style={{
+                  marginBottom: '1.5rem',
+                  padding: '1.25rem',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-gold)',
+                  borderRadius: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '1rem',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <Activity size={18} style={{ color: 'var(--gold-primary)' }} />
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>
+                      Estado de Conexión de Perfiles y Consolidadores
+                    </h4>
+                    <span
+                      className="badge"
+                      style={{
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                        fontSize: '0.75rem',
+                        padding: '0.15rem 0.55rem',
+                      }}
+                    >
+                      {profiles.filter((p) => getUserOnlineStatus(p.last_seen_at).isOnline).length} de {profiles.length} en línea
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      fetchProfiles();
+                      showToast('Estados actualizados');
+                    }}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
+                    title="Actualizar estados ahora"
+                  >
+                    Actualizar ahora
+                  </button>
+                </div>
+
+                {profiles.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No hay perfiles disponibles.</p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    {profiles.map((p) => {
+                      const status = getUserOnlineStatus(p.last_seen_at);
+                      return (
+                        <div
+                          key={p.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            padding: '0.7rem 0.9rem',
+                            borderRadius: '8px',
+                            background: status.isOnline ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-card)',
+                            border: status.isOnline
+                              ? '1px solid rgba(16, 185, 129, 0.3)'
+                              : '1px solid var(--border-subtle)',
+                          }}
+                        >
+                          <div style={{ position: 'relative' }}>
+                            <div
+                              className="avatar-placeholder"
+                              style={{ width: 38, height: 38, fontSize: '0.9rem' }}
+                            >
+                              {p.full_name ? p.full_name.charAt(0).toUpperCase() : '?'}
+                            </div>
+                            <span
+                              style={{
+                                position: 'absolute',
+                                bottom: -2,
+                                right: -2,
+                                width: 10,
+                                height: 10,
+                                borderRadius: '50%',
+                                backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
+                                border: '2px solid var(--bg-card)',
+                                boxShadow: status.isOnline ? '0 0 6px #10b981' : 'none',
+                              }}
+                              title={status.label}
+                            />
+                          </div>
+
+                          <div style={{ overflow: 'hidden', flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <p
+                                style={{
+                                  margin: 0,
+                                  fontWeight: 600,
+                                  fontSize: '0.85rem',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {p.full_name}
+                              </p>
+                              {p.id === profile.id && (
+                                <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)' }}>(Tú)</span>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                              <span
+                                className={`badge badge-${p.role}`}
+                                style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}
+                              >
+                                {ROLE_LABELS[p.role]}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                @{p.username}
+                              </span>
+                            </div>
+                            <p
+                              style={{
+                                margin: '0.25rem 0 0',
+                                fontSize: '0.72rem',
+                                color: status.isOnline ? '#10b981' : 'var(--text-muted)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              {status.isOnline ? `En línea (${status.timeFormatted})` : `Desconectado (${status.timeFormatted})`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Table */}
             {loadingMembers ? (
@@ -1086,7 +1432,8 @@ export default function DashboardClient({ profile }: Props) {
                         </td>
                         <td style={{ minWidth: '180px' }}>
                           {profile.role === 'principal' || profile.role === 'admin' ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                               <select
                                 className="form-select"
                                 style={{
@@ -1138,11 +1485,14 @@ export default function DashboardClient({ profile }: Props) {
                                     {member.consolidator_name || 'Consolidador previo'}
                                   </option>
                                 )}
-                                {profiles.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                                  </option>
-                                ))}
+                                {profiles.map((p) => {
+                                  const status = getUserOnlineStatus(p.last_seen_at);
+                                  return (
+                                    <option key={p.id} value={p.id}>
+                                      {status.isOnline ? '🟢' : '⚪'} {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                                    </option>
+                                  );
+                                })}
                               </select>
                               {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
                                 const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
@@ -1164,6 +1514,36 @@ export default function DashboardClient({ profile }: Props) {
                                   </a>
                                 );
                               })()}
+                            </div>
+                            {member.consolidator_id && (() => {
+                              const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
+                              if (!currentConsolidator) return null;
+                              const status = getUserOnlineStatus(currentConsolidator.last_seen_at);
+                              return (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem',
+                                    marginTop: '0.2rem',
+                                    fontSize: '0.72rem',
+                                    color: status.isOnline ? '#10b981' : 'var(--text-muted)',
+                                  }}
+                                  title={status.label + ' - ' + status.timeFormatted}
+                                >
+                                  <span
+                                    style={{
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: '50%',
+                                      backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
+                                      boxShadow: status.isOnline ? '0 0 4px #10b981' : 'none',
+                                    }}
+                                  />
+                                  <span>{status.isOnline ? 'En línea' : status.timeFormatted}</span>
+                                </div>
+                              );
+                            })()}
                             </div>
                           ) : (
                             <span className="text-secondary">{member.consolidator_name}</span>
@@ -2070,6 +2450,33 @@ export default function DashboardClient({ profile }: Props) {
                         >
                           Desde {formatearFecha(p.created_at)}
                         </p>
+                        {(() => {
+                          const status = getUserOnlineStatus(p.last_seen_at);
+                          return (
+                            <p
+                              style={{
+                                margin: '0.2rem 0 0',
+                                fontSize: '0.73rem',
+                                color: status.isOnline ? '#10b981' : 'var(--text-muted)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: '50%',
+                                  backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
+                                  boxShadow: status.isOnline ? '0 0 5px #10b981' : 'none',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              {status.isOnline ? `En línea (${status.timeFormatted})` : `Desconectado (${status.timeFormatted})`}
+                            </p>
+                          );
+                        })()}
                       </div>
                     </div>
 
@@ -2129,6 +2536,42 @@ export default function DashboardClient({ profile }: Props) {
                       >
                         <Edit2 size={13} />
                       </button>
+
+                      {profile.role === 'principal' && p.id !== profile.id && (
+                        deleteUserConfirm === p.id ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                            <button
+                              onClick={() => handleDeleteUser(p.id)}
+                              className="btn btn-danger btn-icon"
+                              title="Confirmar eliminación permanente"
+                              disabled={deletingUserId === p.id}
+                            >
+                              {deletingUserId === p.id ? (
+                                <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : (
+                                <Check size={13} />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setDeleteUserConfirm(null)}
+                              className="btn btn-secondary btn-icon"
+                              title="Cancelar"
+                              disabled={deletingUserId === p.id}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteUserConfirm(p.id)}
+                            className="btn btn-secondary btn-icon"
+                            style={{ color: 'var(--red-primary)' }}
+                            title="Eliminar Usuario (solo Principal)"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 ))}

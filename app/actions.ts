@@ -153,3 +153,74 @@ export async function adminUpdateUser(
 
   revalidatePath('/dashboard');
 }
+
+export async function adminDeleteUser(userId: string): Promise<{ error: string } | void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: 'No autenticado' };
+
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('id, role, full_name')
+    .eq('id', user.id)
+    .single();
+
+  if (currentProfile?.role !== 'principal') {
+    return { error: 'Solo el usuario Principal tiene permisos para eliminar usuarios. Los administradores no pueden borrar usuarios.' };
+  }
+
+  if (user.id === userId) {
+    return { error: 'No puedes eliminar tu propia cuenta.' };
+  }
+
+  const admin = createAdminClient();
+
+  // 1. Reasignar líderes de casas a null si estaban asignados al usuario que se va a borrar
+  await admin
+    .from('house_groups')
+    .update({ leader_id: null })
+    .eq('leader_id', userId);
+
+  // 2. Reasignar miembros que tenían a este usuario como consolidador al usuario principal
+  await admin
+    .from('members')
+    .update({
+      consolidator_id: user.id,
+      consolidator_name: currentProfile.full_name || 'Principal',
+    })
+    .eq('consolidator_id', userId);
+
+  // 3. Eliminar de public.profiles
+  const { error: profileError } = await admin
+    .from('profiles')
+    .delete()
+    .eq('id', userId);
+
+  if (profileError) return { error: profileError.message };
+
+  // 4. Eliminar de auth.users
+  const { error: authError } = await admin.auth.admin.deleteUser(userId);
+  if (authError) return { error: authError.message };
+
+  revalidatePath('/dashboard');
+}
+
+export async function updateUserActivity(): Promise<void> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase
+      .from('profiles')
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq('id', user.id);
+  } catch {
+    // Si la columna aún no existe o hay algún error de red, silenciar
+  }
+}
+
