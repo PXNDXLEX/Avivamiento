@@ -34,7 +34,7 @@ export interface Member {
   municipio: string | null;
   address: string | null;
   phone: string | null;
-  status: 'Nuevo' | 'Reconciliado' | 'Visitante';
+  status: 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado';
   house_group_id: string | null;
   consolidator_id: string | null;
   consolidator_name: string;

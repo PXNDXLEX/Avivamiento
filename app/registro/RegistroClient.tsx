@@ -106,14 +106,18 @@ export default function RegistroClient({ profile }: Props) {
   }, [fetchMembers]);
 
   async function toggleConsolidado(member: Member) {
-    const newVal = !member.is_consolidated;
+    const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
+    const newStatus: Member['status'] = isNowConsolidated ? 'Consolidado' : 'Nuevo';
     try {
       const { error: err } = await supabase
         .from('members')
-        .update({ is_consolidated: newVal })
+        .update({
+          status: newStatus,
+          is_consolidated: isNowConsolidated,
+        })
         .eq('id', member.id);
       if (err) throw err;
-      showToast(newVal ? 'Marcado como consolidado 🎉' : 'Marcado como pendiente');
+      showToast(isNowConsolidated ? `${member.full_name} marcado como Consolidado 🎉` : 'Estado restablecido a Nuevo');
       fetchMembers();
     } catch (err: any) {
       showToast(err.message || 'Error al actualizar estado.', 'error');
@@ -160,6 +164,7 @@ export default function RegistroClient({ profile }: Props) {
       address: form.address || null,
       phone: form.phone ? formatearTelefono(form.phone) : null,
       status: form.status,
+      is_consolidated: form.status === 'Consolidado',
       house_group_id: null,
     };
 
@@ -196,6 +201,7 @@ export default function RegistroClient({ profile }: Props) {
     Nuevo: 'badge-nuevo',
     Reconciliado: 'badge-reconciliado',
     Visitante: 'badge-visitante',
+    Consolidado: 'badge-consolidado',
   };
 
   const filteredMembers = members.filter((m) => {
@@ -291,6 +297,7 @@ export default function RegistroClient({ profile }: Props) {
             <option>Nuevo</option>
             <option>Reconciliado</option>
             <option>Visitante</option>
+            <option>Consolidado</option>
           </select>
         </div>
       </div>

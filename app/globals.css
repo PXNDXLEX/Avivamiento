@@ -484,6 +484,12 @@ html.light .verse-banner .verse-ref {
   border: 1px solid var(--border-gold);
 }
 
+.badge-consolidado {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
 .badge-admin {
   background: rgba(201, 168, 76, 0.15);
   color: var(--gold-primary);
@@ -519,6 +525,12 @@ html.light .badge-visitante {
   background: rgba(180, 83, 9, 0.12);
   color: #92400e;
   border-color: rgba(180, 83, 9, 0.3);
+}
+
+html.light .badge-consolidado {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.4);
 }
 
 html.light .badge-admin,

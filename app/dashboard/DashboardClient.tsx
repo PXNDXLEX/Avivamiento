@@ -67,6 +67,7 @@ const STATUS_COLORS: Record<string, string> = {
   Nuevo: 'var(--color-nuevo)',
   Reconciliado: 'var(--color-reconciliado)',
   Visitante: 'var(--color-visitante)',
+  Consolidado: '#10b981',
 };
 
 const CASA_COLORS = [
@@ -707,6 +708,7 @@ export default function DashboardClient({ profile }: Props) {
       address: memberForm.address || null,
       phone: memberForm.phone ? formatearTelefono(memberForm.phone) : null,
       status: memberForm.status,
+      is_consolidated: memberForm.status === 'Consolidado',
       house_group_id: memberForm.house_group_id || null,
       consolidator_id: chosenConsolidator.id,
       consolidator_name: chosenConsolidator.full_name,
@@ -767,13 +769,17 @@ export default function DashboardClient({ profile }: Props) {
 
   async function toggleConsolidado(member: Member) {
     try {
-      const newVal = !member.is_consolidated;
+      const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
+      const newStatus: Member['status'] = isNowConsolidated ? 'Consolidado' : 'Nuevo';
       const { error } = await supabase
         .from('members')
-        .update({ is_consolidated: newVal })
+        .update({
+          status: newStatus,
+          is_consolidated: isNowConsolidated,
+        })
         .eq('id', member.id);
       if (error) throw error;
-      showToast(newVal ? 'Miembro marcado como consolidado.' : 'Marca de consolidado removida.');
+      showToast(isNowConsolidated ? 'Miembro marcado como Consolidado.' : 'Marca de consolidado removida.');
       fetchMembers();
     } catch (err: any) {
       showToast('Error al actualizar estado.', 'error');
@@ -1106,7 +1112,7 @@ export default function DashboardClient({ profile }: Props) {
               }}
             >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {['all', 'Nuevo', 'Reconciliado', 'Visitante'].map((s) => (
+                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
                   <button
                     key={s}
                     onClick={() => setFilterStatus(s)}
@@ -2701,6 +2707,7 @@ export default function DashboardClient({ profile }: Props) {
                   <option>Nuevo</option>
                   <option>Reconciliado</option>
                   <option>Visitante</option>
+                  <option>Consolidado</option>
                 </select>
               </div>
 
