@@ -221,6 +221,7 @@ export default function RegistroClient({ profile }: Props) {
     nuevo: members.filter((m) => m.status === 'Nuevo').length,
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
+    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
   };
 
   const pendingConsolidation = members.filter((m) => !m.is_consolidated);
@@ -280,25 +281,47 @@ export default function RegistroClient({ profile }: Props) {
         </div>
       </div>
 
-      <div className="grid-2">
-        <div className="form-group">
-          <label htmlFor="status" className="form-label">Miembro</label>
-          <select
-            id="status"
-            className="form-select"
-            value={form.status}
-            onChange={(e) =>
-              setForm((f) => ({
-                ...f,
-                status: e.target.value as Member['status'],
-              }))
-            }
-          >
-            <option>Nuevo</option>
-            <option>Reconciliado</option>
-            <option>Visitante</option>
-            <option>Consolidado</option>
-          </select>
+            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+        <label htmlFor="status" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Estado / Condición del Miembro *</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            {form.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+            {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+            {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
+            {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+          </span>
+        </label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginTop: '0.35rem' }}>
+          {[
+            { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+            { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+            { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+            { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+          ].map((st) => {
+            const isSel = form.status === st.key;
+            return (
+              <button
+                key={st.key}
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, status: st.key as Member['status'] }))}
+                className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
+                style={{
+                  padding: '0.55rem 0.3rem',
+                  fontSize: '0.8rem',
+                  fontWeight: isSel ? 600 : 400,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.3rem',
+                  borderColor: isSel ? 'var(--gold-primary)' : undefined,
+                  boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                }}
+              >
+                <span>{st.icon}</span>
+                <span>{st.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -596,11 +619,12 @@ export default function RegistroClient({ profile }: Props) {
             <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
               Tu Resumen de Registros
             </h2>
-            <div className="grid-2">
+            <div className="grid-5">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
               <StatCard label="Reconciliados" value={stats.reconciliado} color="var(--color-reconciliado)" />
               <StatCard label="Visitantes" value={stats.visitante} color="var(--color-visitante)" />
+              <StatCard label="Consolidados" value={stats.consolidado} color="#10b981" />
             </div>
           </div>
         )}

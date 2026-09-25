@@ -558,6 +558,7 @@ export default function DashboardClient({ profile }: Props) {
     nuevo: members.filter((m) => m.status === 'Nuevo').length,
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
+    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
   };
 
   const statusChartData = [
@@ -572,11 +573,16 @@ export default function DashboardClient({ profile }: Props) {
       value: stats.visitante,
       color: STATUS_COLORS.Visitante,
     },
+    {
+      name: 'Consolidados',
+      value: stats.consolidado,
+      color: STATUS_COLORS.Consolidado,
+    },
   ];
 
   const municipioChartData = Object.entries(
     filteredMembers.reduce((acc: Record<string, number>, m) => {
-      if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante') {
+      if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante' || m.status === 'Consolidado') {
         if (m.municipio) {
           acc[m.municipio] = (acc[m.municipio] ?? 0) + 1;
         }
@@ -1055,11 +1061,12 @@ export default function DashboardClient({ profile }: Props) {
             )}
 
             <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Resumen de Registros</h2>
-            <div className="grid-4" style={{ marginBottom: '2rem' }}>
+            <div className="grid-5" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
               <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
+              <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
             </div>
           </div>
         )}
@@ -1388,7 +1395,7 @@ export default function DashboardClient({ profile }: Props) {
                   <thead>
                     <tr>
                       <th>Nombre</th>
-                      <th>Miembro</th>
+                      <th>Estado</th>
                       <th>Municipio</th>
                       <th>Teléfono</th>
                       <th>Consolidador</th>
@@ -1678,7 +1685,7 @@ export default function DashboardClient({ profile }: Props) {
                     <thead>
                       <tr>
                         <th>Nombre</th>
-                        <th>Miembro</th>
+                        <th>Estado</th>
                         <th>Teléfono</th>
                         <th>Consolidador</th>
                         <th style={{ textAlign: 'center' }}>WhatsApp</th>
@@ -2691,26 +2698,51 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Miembro</label>
-                <select
-                  className="form-select"
-                  value={memberForm.status}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({
-                      ...f,
-                      status: e.target.value as Member['status'],
-                    }))
-                  }
-                >
-                  <option>Nuevo</option>
-                  <option>Reconciliado</option>
-                  <option>Visitante</option>
-                  <option>Consolidado</option>
-                </select>
+            <div className="form-group" style={{ marginBottom: '1rem' }}>
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Estado / Condición del Miembro *</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                  {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                  {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                  {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                </span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginTop: '0.35rem' }}>
+                {[
+                  { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                  { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                  { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                  { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+                ].map((st) => {
+                  const isSel = memberForm.status === st.key;
+                  return (
+                    <button
+                      key={st.key}
+                      type="button"
+                      onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
+                      className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{
+                        padding: '0.55rem 0.3rem',
+                        fontSize: '0.8rem',
+                        fontWeight: isSel ? 600 : 400,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.3rem',
+                        borderColor: isSel ? 'var(--gold-primary)' : undefined,
+                        boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                      }}
+                    >
+                      <span>{st.icon}</span>
+                      <span>{st.label}</span>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
 
+            <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">Municipio</label>
                 <select
