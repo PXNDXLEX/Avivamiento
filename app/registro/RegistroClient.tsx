@@ -20,6 +20,8 @@ import {
   Flame,
   Bell,
   MessageCircle,
+  Search,
+  Check,
 } from 'lucide-react';
 
 interface Props {
@@ -66,6 +68,8 @@ export default function RegistroClient({ profile }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [consolidatingConfirmId, setConsolidatingConfirmId] = useState<string | null>(null);
   
   // Navigation & Visibility
   const [showFormModal, setShowFormModal] = useState(false);
@@ -193,6 +197,18 @@ export default function RegistroClient({ profile }: Props) {
     Reconciliado: 'badge-reconciliado',
     Visitante: 'badge-visitante',
   };
+
+  const filteredMembers = members.filter((m) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase().trim();
+    return (
+      m.full_name.toLowerCase().includes(q) ||
+      (m.phone ?? '').toLowerCase().includes(q) ||
+      (m.municipio ?? '').toLowerCase().includes(q) ||
+      (m.address ?? '').toLowerCase().includes(q) ||
+      m.status.toLowerCase().includes(q)
+    );
+  });
 
   const stats = {
     total: members.length,
@@ -587,9 +603,60 @@ export default function RegistroClient({ profile }: Props) {
           <div className="animate-fade-in" style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
             {/* List Section (Expands) */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                <h2 className="font-cinzel" style={{ fontSize: '1.3rem' }}>Mis Registros</h2>
-                <span className="badge badge-visitante">{members.length} miembro{members.length !== 1 ? 's' : ''}</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h2 className="font-cinzel" style={{ fontSize: '1.3rem', margin: 0 }}>Mis Registros</h2>
+                <span className="badge badge-visitante">
+                  {filteredMembers.length}{filteredMembers.length !== members.length ? ` de ${members.length}` : ''} miembro{members.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Buscador en tiempo real */}
+              <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: 'absolute',
+                    left: '1rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--gold-primary)',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Buscar por nombre, teléfono, municipio o estatus..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{
+                    padding: '0.65rem 2.2rem 0.65rem 2.5rem',
+                    fontSize: '0.9rem',
+                    width: '100%',
+                    borderRadius: '8px',
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-gold)',
+                  }}
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    style={{
+                      position: 'absolute',
+                      right: '0.75rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                    title="Limpiar búsqueda"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
               </div>
 
               {loading ? (
@@ -603,9 +670,23 @@ export default function RegistroClient({ profile }: Props) {
                   <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Sin registros</p>
                   <p>Aún no tienes registros en tu lista.</p>
                 </div>
+              ) : filteredMembers.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '3.5rem 2rem', color: 'var(--text-muted)' }}>
+                  <Search size={40} style={{ margin: '0 auto 1rem', opacity: 0.25 }} />
+                  <p style={{ fontSize: '1.05rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                    No se encontraron registros para &ldquo;{search}&rdquo;
+                  </p>
+                  <button
+                    onClick={() => setSearch('')}
+                    className="btn btn-secondary"
+                    style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}
+                  >
+                    Limpiar búsqueda
+                  </button>
+                </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                  {members.map((m) => (
+                  {filteredMembers.map((m) => (
                     <div key={m.id} className="card" style={{ padding: '1.25rem' }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -670,7 +751,82 @@ export default function RegistroClient({ profile }: Props) {
                         {m.age && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🗓 {m.age} años</div>}
                       </div>
                       
-                      <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                        <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
+
+                        {m.is_consolidated ? (
+                          <button
+                            onClick={() => toggleConsolidado(m)}
+                            className="badge"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.15)',
+                              color: '#10b981',
+                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              fontSize: '0.75rem',
+                              padding: '0.3rem 0.65rem',
+                              cursor: 'pointer',
+                            }}
+                            title="Click para desmarcar consolidado si fue un error"
+                          >
+                            <CheckCircle size={13} />
+                            Consolidado ✓
+                          </button>
+                        ) : (
+                          consolidatingConfirmId === m.id ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <button
+                                onClick={() => {
+                                  toggleConsolidado(m);
+                                  setConsolidatingConfirmId(null);
+                                }}
+                                className="btn btn-primary"
+                                style={{
+                                  fontSize: '0.72rem',
+                                  padding: '0.28rem 0.65rem',
+                                  background: '#10b981',
+                                  borderColor: '#10b981',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                }}
+                                title="Confirmar marcar como consolidado"
+                              >
+                                <Check size={12} />
+                                ¿Confirmar?
+                              </button>
+                              <button
+                                onClick={() => setConsolidatingConfirmId(null)}
+                                className="btn btn-secondary btn-icon"
+                                style={{ width: 26, height: 26 }}
+                                title="Cancelar"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConsolidatingConfirmId(m.id)}
+                              className="btn btn-secondary"
+                              style={{
+                                fontSize: '0.75rem',
+                                padding: '0.3rem 0.65rem',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                color: 'var(--gold-primary)',
+                                borderColor: 'var(--border-gold)',
+                              }}
+                              title="Marcar persona como consolidada"
+                            >
+                              <CheckCircle size={13} />
+                              Marcar Consolidado
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
