@@ -78,13 +78,13 @@ export async function adminCreateUser(data: {
 
   if (error) return { error: error.message };
 
-  const { error: profileError } = await admin.from('profiles').insert({
+  const { error: profileError } = await admin.from('profiles').upsert({
     id: newUser.user.id,
     username: data.username.toLowerCase().trim(),
     full_name: data.full_name,
     phone: data.phone || null,
     role: data.role,
-  });
+  }, { onConflict: 'id' });
 
   if (profileError) return { error: profileError.message };
 
