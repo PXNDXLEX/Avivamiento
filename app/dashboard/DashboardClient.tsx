@@ -1821,7 +1821,7 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
 
                 {/* Status pie chart */}
-                <div className="card" style={{ padding: '1.5rem' }}>
+                <div className="card" style={{ padding: '1.5rem', overflow: 'hidden' }}>
                   <h3
                     className="font-cinzel"
                     style={{ fontSize: '0.95rem', marginBottom: '1rem' }}
@@ -1829,33 +1829,39 @@ export default function DashboardClient({ profile }: Props) {
                     Distribución por Estado
                   </h3>
                   {/* Donut chart sin labels flotantes + leyenda manual debajo */}
-                  <ResponsiveContainer width="100%" height={220}>
-                    <PieChart>
-                      <Pie
-                        data={statusChartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={95}
-                        paddingAngle={4}
-                        dataKey="value"
-                      >
-                        {statusChartData.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border-gold)',
-                          borderRadius: '8px',
-                          color: 'var(--text-primary)',
-                          fontSize: '0.85rem',
-                        }}
-                        formatter={(value: number, name: string) => [`${value}`, name]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <div style={{ position: 'relative' }}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={statusChartData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={95}
+                          paddingAngle={4}
+                          dataKey="value"
+                          isAnimationActive={true}
+                        >
+                          {statusChartData.map((entry, i) => (
+                            <Cell key={i} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: '#1a1a2e',
+                            border: '1px solid #c9a84c',
+                            borderRadius: '8px',
+                            color: '#f0e6c8',
+                            fontSize: '0.82rem',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                          }}
+                          itemStyle={{ color: '#f0e6c8' }}
+                          labelStyle={{ color: '#c9a84c', fontWeight: 600 }}
+                          formatter={(value: number, name: string) => [value, name]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
                   {/* Leyenda manual en grid 2x2 para evitar overflow */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginTop: '1rem' }}>
                     {statusChartData.map((entry) => (
