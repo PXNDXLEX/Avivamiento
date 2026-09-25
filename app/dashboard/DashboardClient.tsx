@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -680,7 +680,7 @@ export default function DashboardClient({ profile }: Props) {
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ?? '',
+      phone: formatearTelefono(member.phone),
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
       house_group_id: member.house_group_id || '',
@@ -705,7 +705,7 @@ export default function DashboardClient({ profile }: Props) {
       gender: memberForm.gender || null,
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
-      phone: memberForm.phone || null,
+      phone: memberForm.phone ? formatearTelefono(memberForm.phone) : null,
       status: memberForm.status,
       house_group_id: memberForm.house_group_id || null,
       consolidator_id: chosenConsolidator.id,
@@ -1428,7 +1428,7 @@ export default function DashboardClient({ profile }: Props) {
                           {member.municipio ?? '—'}
                         </td>
                         <td className="text-secondary">
-                          {member.phone ?? '—'}
+                          {formatearTelefono(member.phone) || '—'}
                         </td>
                         <td style={{ minWidth: '180px' }}>
                           {profile.role === 'principal' || profile.role === 'admin' ? (
@@ -1497,13 +1497,10 @@ export default function DashboardClient({ profile }: Props) {
                               {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
                                 const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
                                 if (!currentConsolidator?.phone) return null;
-                                const cleanPhone = currentConsolidator.phone.replace(/\D/g, '');
-                                const msg = encodeURIComponent(
-                                  `Hola ${currentConsolidator.full_name}, Dios te bendiga 🙏. Te recuerdo el seguimiento asignado para el miembro: ${member.full_name} (Tel: ${member.phone || 'No registrado'}, Municipio: ${member.municipio || 'No especificado'}).`
-                                );
+                                const msg = `Hola ${currentConsolidator.full_name}, Dios te bendiga 🙏. Te recuerdo el seguimiento asignado para el miembro: ${member.full_name} (Tel: ${formatearTelefono(member.phone) || 'No registrado'}, Municipio: ${member.municipio || 'No especificado'}).`;
                                 return (
                                   <a
-                                    href={`https://wa.me/${cleanPhone}?text=${msg}`}
+                                    href={getWhatsAppUrl(currentConsolidator.phone, msg)}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="btn btn-secondary btn-icon"
@@ -1696,7 +1693,7 @@ export default function DashboardClient({ profile }: Props) {
                           <td>
                             <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
                           </td>
-                          <td className="text-secondary">{member.phone || '—'}</td>
+                          <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
                           <td>
                             <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
                               {member.consolidator_name || 'Sin asignar'}
@@ -1706,7 +1703,7 @@ export default function DashboardClient({ profile }: Props) {
                             <div style={{ display: 'flex', justifyContent: 'center' }}>
                               {member.phone ? (
                                 <a
-                                  href={`https://wa.me/${member.phone.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(member.full_name)},%20te%20escribimos%20de%20la%20Iglesia%20Avivamiento%20León%20de%20la%20Tribu%20de%20Judá`}
+                                  href={getWhatsAppUrl(member.phone, `Hola ${member.full_name}, te escribimos de la Iglesia Avivamiento León de la Tribu de Judá`)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="btn btn-primary btn-icon"
@@ -2440,7 +2437,7 @@ export default function DashboardClient({ profile }: Props) {
                             className="text-muted"
                             style={{ fontSize: '0.8rem' }}
                           >
-                            {p.phone}
+                            {formatearTelefono(p.phone)}
                           </p>
                         )}
                         <p
@@ -2600,7 +2597,7 @@ export default function DashboardClient({ profile }: Props) {
                       </div>
                       <div>
                         <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{p.full_name}</p>
-                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{p.phone || 'Sin teléfono'}</p>
+                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{formatearTelefono(p.phone) || 'Sin teléfono'}</p>
                       </div>
                     </div>
                   ))}
@@ -2799,6 +2796,9 @@ export default function DashboardClient({ profile }: Props) {
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, phone: e.target.value }))
                 }
+                onBlur={() =>
+                  setMemberForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
+                }
               />
             </div>
 
@@ -2888,6 +2888,9 @@ export default function DashboardClient({ profile }: Props) {
                 value={userForm.phone}
                 onChange={(e) =>
                   setUserForm((f) => ({ ...f, phone: e.target.value }))
+                }
+                onBlur={() =>
+                  setUserForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
                 }
               />
             </div>
@@ -3101,9 +3104,9 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             {(() => {
-              const phoneClean = assignNotificationModal.consolidatorPhone ? assignNotificationModal.consolidatorPhone.replace(/\D/g, '') : '';
-              const whatsappText = `Hola ${assignNotificationModal.consolidatorName}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.\n\nSe te ha asignado un nuevo miembro para consolidación y seguimiento:\n\n👤 *Nombre:* ${assignNotificationModal.memberName}\n📞 *Teléfono:* ${assignNotificationModal.memberPhone || 'No registrado'}\n📍 *Municipio:* ${assignNotificationModal.memberMunicipio || 'No especificado'}\n🏷 *Estatus:* ${assignNotificationModal.status}\n\nPor favor comunícate con él/ella para darle la bienvenida y acompañarle en su proceso de fe. ¡Muchas bendiciones!`;
-              const whatsappUrl = phoneClean ? `https://wa.me/${phoneClean}?text=${encodeURIComponent(whatsappText)}` : '';
+              const formattedMemberPhone = formatearTelefono(assignNotificationModal.memberPhone);
+              const whatsappText = `Hola ${assignNotificationModal.consolidatorName}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.\n\nSe te ha asignado un nuevo miembro para consolidación y seguimiento:\n\n👤 *Nombre:* ${assignNotificationModal.memberName}\n📞 *Teléfono:* ${formattedMemberPhone || 'No registrado'}\n📍 *Municipio:* ${assignNotificationModal.memberMunicipio || 'No especificado'}\n🏷 *Estatus:* ${assignNotificationModal.status}\n\nPor favor comunícate con él/ella para darle la bienvenida y acompañarle en su proceso de fe. ¡Muchas bendiciones!`;
+              const whatsappUrl = getWhatsAppUrl(assignNotificationModal.consolidatorPhone, whatsappText);
 
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -3139,7 +3142,7 @@ export default function DashboardClient({ profile }: Props) {
                       Copiar Mensaje
                     </button>
 
-                    {phoneClean ? (
+                    {whatsappUrl ? (
                       <a
                         href={whatsappUrl}
                         target="_blank"

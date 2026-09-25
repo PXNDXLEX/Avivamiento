@@ -60,3 +60,66 @@ export function formatearFechaCorta(fecha: string): string {
   });
 }
 
+/**
+ * Normaliza y formatea un número telefónico para mostrarlo con prefijo nacional (0414, 0424, 0412, 0422, 0416, 0426).
+ * Si el usuario introduce +58 o 58, se transforma automáticamente para mostrar el 0 inicial estándar.
+ */
+export function formatearTelefono(phone?: string | null): string {
+  if (!phone) return '';
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (!digits) return trimmed;
+
+  // Caso: 5804141234567 -> 04141234567
+  if (digits.startsWith('580') && digits.length >= 12) {
+    return digits.slice(2);
+  }
+
+  // Caso: +584141234567 o 584141234567 -> 04141234567
+  if (digits.startsWith('58') && digits.length >= 11) {
+    const localPart = digits.slice(2);
+    return localPart.startsWith('0') ? localPart : '0' + localPart;
+  }
+
+  // Caso: 4141234567 (10 dígitos sin el 0 inicial) -> 04141234567
+  if (digits.length === 10 && /^(412|414|424|416|426|422|2\d{2})/.test(digits)) {
+    return '0' + digits;
+  }
+
+  // Si ya tiene 11 dígitos y empieza por 0 (ej. 04148007840)
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return digits;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Genera el enlace wa.me internacional garantizando el código de país +58 de Venezuela.
+ * Convierte formatos como 0414..., 414..., +58414... a 58414... para que WhatsApp no dé error.
+ */
+export function getWhatsAppUrl(phone?: string | null, message?: string): string {
+  if (!phone) return '';
+  let digits = phone.replace(/\D/g, '');
+  if (!digits) return '';
+
+  if (digits.startsWith('580')) {
+    digits = '58' + digits.slice(3);
+  } else if (digits.startsWith('58') && digits.length >= 12) {
+    // Ya tiene el código 58
+  } else if (digits.startsWith('0')) {
+    // 0414... -> 58414...
+    digits = '58' + digits.slice(1);
+  } else if (digits.length === 10 && /^(412|414|424|416|426|422)/.test(digits)) {
+    // 414... -> 58414...
+    digits = '58' + digits;
+  } else if (!digits.startsWith('58')) {
+    digits = '58' + digits;
+  }
+
+  const encodedMsg = message ? encodeURIComponent(message) : '';
+  return `https://wa.me/${digits}${encodedMsg ? `?text=${encodedMsg}` : ''}`;
+}
+
+

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, getRandomVersiculo } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -130,7 +130,7 @@ export default function RegistroClient({ profile }: Props) {
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ?? '',
+      phone: formatearTelefono(member.phone),
       status: member.status,
     });
     setEditingId(member.id);
@@ -154,7 +154,7 @@ export default function RegistroClient({ profile }: Props) {
       gender: form.gender || null,
       municipio: form.municipio || null,
       address: form.address || null,
-      phone: form.phone || null,
+      phone: form.phone ? formatearTelefono(form.phone) : null,
       status: form.status,
       house_group_id: null,
     };
@@ -321,6 +321,9 @@ export default function RegistroClient({ profile }: Props) {
           value={form.phone}
           onChange={(e) =>
             setForm((f) => ({ ...f, phone: e.target.value }))
+          }
+          onBlur={() =>
+            setForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
           }
         />
       </div>
@@ -614,13 +617,51 @@ export default function RegistroClient({ profile }: Props) {
                             <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>{formatearFecha(m.created_at)}</p>
                           </div>
                         </div>
-                        <button onClick={() => startEdit(m)} className="btn btn-secondary btn-icon" style={{ width: 32, height: 32 }}>
-                          <Edit2 size={14} />
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          {m.phone && (
+                            <a
+                              href={getWhatsAppUrl(
+                                m.phone,
+                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn-secondary btn-icon"
+                              style={{ width: 32, height: 32, color: '#25D366' }}
+                              title="Contactar por WhatsApp"
+                            >
+                              <MessageCircle size={15} />
+                            </a>
+                          )}
+                          <button
+                            onClick={() => startEdit(m)}
+                            className="btn btn-secondary btn-icon"
+                            style={{ width: 32, height: 32 }}
+                            title="Editar miembro"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                        </div>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                        {m.phone && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📞 {m.phone}</div>}
+                        {m.phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            📞{' '}
+                            <a
+                              href={getWhatsAppUrl(
+                                m.phone,
+                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: 'inherit', textDecoration: 'none' }}
+                              title="Enviar WhatsApp"
+                            >
+                              {formatearTelefono(m.phone)}
+                            </a>
+                          </div>
+                        )}
                         {(m.municipio || m.address) && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             📍 {m.municipio ?? ''}{m.address ? (m.municipio ? ` — ${m.address}` : m.address) : ''}
