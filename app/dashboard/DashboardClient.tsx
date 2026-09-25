@@ -1824,22 +1824,21 @@ export default function DashboardClient({ profile }: Props) {
                 <div className="card" style={{ padding: '1.5rem' }}>
                   <h3
                     className="font-cinzel"
-                    style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
+                    style={{ fontSize: '0.95rem', marginBottom: '1rem' }}
                   >
                     Distribución por Estado
                   </h3>
-                  <ResponsiveContainer width="100%" height={280}>
+                  {/* Donut chart sin labels flotantes + leyenda manual debajo */}
+                  <ResponsiveContainer width="100%" height={220}>
                     <PieChart>
                       <Pie
                         data={statusChartData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={65}
-                        outerRadius={105}
+                        innerRadius={60}
+                        outerRadius={95}
                         paddingAngle={4}
                         dataKey="value"
-                        label={({ name, value }) => `${name}: ${value}`}
-                        labelLine={false}
                       >
                         {statusChartData.map((entry, i) => (
                           <Cell key={i} fill={entry.color} />
@@ -1853,21 +1852,21 @@ export default function DashboardClient({ profile }: Props) {
                           color: 'var(--text-primary)',
                           fontSize: '0.85rem',
                         }}
-                      />
-                      <Legend
-                        formatter={(v) => (
-                          <span
-                            style={{
-                              color: 'var(--text-secondary)',
-                              fontSize: '0.85rem',
-                            }}
-                          >
-                            {v}
-                          </span>
-                        )}
+                        formatter={(value: number, name: string) => [`${value}`, name]}
                       />
                     </PieChart>
                   </ResponsiveContainer>
+                  {/* Leyenda manual en grid 2x2 para evitar overflow */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginTop: '1rem' }}>
+                    {statusChartData.map((entry) => (
+                      <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: entry.color, flexShrink: 0, display: 'inline-block' }} />
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {entry.name}: <strong style={{ color: 'var(--text-primary)' }}>{entry.value}</strong>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 {/* City bar chart */}
@@ -2699,16 +2698,16 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group" style={{ marginBottom: '1rem' }}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Estado / Condición del Miembro *</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-                  {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-                  {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
-                  {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-                </span>
+              <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
+                Estado / Condición del Miembro *
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginTop: '0.35rem' }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
                 {[
                   { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
                   { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
@@ -2723,15 +2722,16 @@ export default function DashboardClient({ profile }: Props) {
                       onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
                       className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
                       style={{
-                        padding: '0.55rem 0.3rem',
-                        fontSize: '0.8rem',
+                        padding: '0.55rem 0.5rem',
+                        fontSize: '0.82rem',
                         fontWeight: isSel ? 600 : 400,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '0.3rem',
+                        gap: '0.35rem',
                         borderColor: isSel ? 'var(--gold-primary)' : undefined,
                         boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                        width: '100%',
                       }}
                     >
                       <span>{st.icon}</span>

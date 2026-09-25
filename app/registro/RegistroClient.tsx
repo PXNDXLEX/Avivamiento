@@ -282,16 +282,16 @@ export default function RegistroClient({ profile }: Props) {
       </div>
 
             <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-        <label htmlFor="status" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Estado / Condición del Miembro *</span>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            {form.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-            {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-            {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
-            {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-          </span>
+        <label htmlFor="status" className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
+          Estado / Condición del Miembro *
         </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.4rem', marginTop: '0.35rem' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+          {form.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+          {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+          {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
+          {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
           {[
             { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
             { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
@@ -306,15 +306,16 @@ export default function RegistroClient({ profile }: Props) {
                 onClick={() => setForm((f) => ({ ...f, status: st.key as Member['status'] }))}
                 className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
                 style={{
-                  padding: '0.55rem 0.3rem',
-                  fontSize: '0.8rem',
+                  padding: '0.55rem 0.5rem',
+                  fontSize: '0.82rem',
                   fontWeight: isSel ? 600 : 400,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.3rem',
+                  gap: '0.35rem',
                   borderColor: isSel ? 'var(--gold-primary)' : undefined,
                   boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                  width: '100%',
                 }}
               >
                 <span>{st.icon}</span>
