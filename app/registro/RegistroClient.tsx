@@ -17,7 +17,9 @@ import {
   Loader2,
   Home,
   BookOpen,
-  Flame
+  Flame,
+  Bell,
+  MessageCircle,
 } from 'lucide-react';
 
 interface Props {
@@ -98,6 +100,21 @@ export default function RegistroClient({ profile }: Props) {
   useEffect(() => {
     fetchMembers();
   }, [fetchMembers]);
+
+  async function toggleConsolidado(member: Member) {
+    const newVal = !member.is_consolidated;
+    try {
+      const { error: err } = await supabase
+        .from('members')
+        .update({ is_consolidated: newVal })
+        .eq('id', member.id);
+      if (err) throw err;
+      showToast(newVal ? 'Marcado como consolidado 🎉' : 'Marcado como pendiente');
+      fetchMembers();
+    } catch (err: any) {
+      showToast(err.message || 'Error al actualizar estado.', 'error');
+    }
+  }
 
   function resetForm() {
     setForm(emptyForm);
@@ -183,6 +200,8 @@ export default function RegistroClient({ profile }: Props) {
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
   };
+
+  const pendingConsolidation = members.filter((m) => !m.is_consolidated);
 
   const renderForm = () => (
     <form
@@ -423,10 +442,26 @@ export default function RegistroClient({ profile }: Props) {
           <button 
             onClick={() => setActiveTab('list')}
             className={`btn ${activeTab === 'list' ? 'btn-primary' : 'btn-secondary'}`} 
-            style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}
+            style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}
           >
-            <Users size={18} />
-            Mis Registros
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Users size={18} />
+              Mis Registros
+            </div>
+            {pendingConsolidation.length > 0 && (
+              <span
+                style={{
+                  background: 'var(--gold-primary)',
+                  color: '#000',
+                  borderRadius: '12px',
+                  padding: '0.15rem 0.5rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                }}
+              >
+                {pendingConsolidation.length}
+              </span>
+            )}
           </button>
         </nav>
 
@@ -478,6 +513,57 @@ export default function RegistroClient({ profile }: Props) {
                 <p className="verse-ref">
                   — {versiculo.referencia}
                 </p>
+              </div>
+            )}
+
+            {pendingConsolidation.length > 0 && (
+              <div
+                className="card"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(0, 0, 0, 0.35))',
+                  border: '1px solid var(--border-gold)',
+                  borderRadius: '16px',
+                  padding: '1.25rem 1.5rem',
+                  marginBottom: '2rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: '50%',
+                      background: 'var(--gold-primary)',
+                      color: '#000',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Bell size={22} />
+                  </div>
+                  <div>
+                    <p style={{ fontWeight: 700, color: 'var(--gold-primary)', fontSize: '1rem', margin: 0 }}>
+                      ¡Tienes {pendingConsolidation.length} persona{pendingConsolidation.length > 1 ? 's' : ''} asignada{pendingConsolidation.length > 1 ? 's' : ''} para seguimiento!
+                    </p>
+                    <p className="text-secondary" style={{ fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
+                      El administrador te ha asignado nuevos miembros para su consolidación y llamada.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('list')}
+                  className="btn btn-primary"
+                  style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+                >
+                  Ver Asignaciones →
+                </button>
               </div>
             )}
 

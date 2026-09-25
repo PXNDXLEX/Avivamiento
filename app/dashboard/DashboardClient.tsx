@@ -50,6 +50,10 @@ import {
   CalendarDays,
   Phone,
   MessageCircle,
+  UserCheck,
+  Bell,
+  Send,
+  Copy,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -276,10 +280,22 @@ export default function DashboardClient({ profile }: Props) {
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
+    consolidator_id: profile.id,
+    house_group_id: '',
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
   const [memberError, setMemberError] = useState('');
+  const [assigningConsolidatorId, setAssigningConsolidatorId] = useState<string | null>(null);
+  const [assignNotificationModal, setAssignNotificationModal] = useState<{
+    open: boolean;
+    memberName: string;
+    consolidatorName: string;
+    consolidatorPhone: string | null;
+    memberPhone: string | null;
+    memberMunicipio: string | null;
+    status: string;
+  } | null>(null);
 
   /* User modal */
   const [userModal, setUserModal] = useState<{ open: boolean; userId?: string }>({ open: false });
@@ -352,10 +368,6 @@ export default function DashboardClient({ profile }: Props) {
     setLoadingProfiles(false);
   }, [supabase, profile.role]);
 
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
-
   const fetchCasasData = useCallback(async () => {
     try {
       const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
@@ -372,8 +384,16 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
-    if (activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
+    fetchMembers();
+    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
+      fetchProfiles();
+      fetchCasasData();
+    }
+  }, [fetchMembers, fetchProfiles, fetchCasasData, profile.role]);
+
+  useEffect(() => {
+    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
+    if (activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
 
   /* ── Derived state ── */
@@ -517,12 +537,20 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Member CRUD ── */
   function openAddMember() {
-    setMemberForm(emptyMemberForm);
+    if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
+    setMemberForm({
+      ...emptyMemberForm,
+      consolidator_id: profile.id,
+      house_group_id: '',
+    });
     setMemberError('');
     setMemberModal({ open: true });
   }
 
   function openEditMember(member: Member) {
+    if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
@@ -531,6 +559,8 @@ export default function DashboardClient({ profile }: Props) {
       address: member.address ?? '',
       phone: member.phone ?? '',
       status: member.status,
+      consolidator_id: member.consolidator_id || profile.id,
+      house_group_id: member.house_group_id || '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -544,6 +574,8 @@ export default function DashboardClient({ profile }: Props) {
     setSavingMember(true);
     setMemberError('');
 
+    const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
+
     const payload = {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
@@ -552,7 +584,9 @@ export default function DashboardClient({ profile }: Props) {
       address: memberForm.address || null,
       phone: memberForm.phone || null,
       status: memberForm.status,
-      house_group_id: null,
+      house_group_id: memberForm.house_group_id || null,
+      consolidator_id: chosenConsolidator.id,
+      consolidator_name: chosenConsolidator.full_name,
     };
 
     try {
@@ -564,16 +598,24 @@ export default function DashboardClient({ profile }: Props) {
         if (error) throw error;
         showToast('Miembro actualizado correctamente.');
       } else {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        const { error } = await supabase.from('members').insert({
-          ...payload,
-          consolidator_id: user?.id,
-          consolidator_name: profile.full_name,
-        });
+        const { error } = await supabase.from('members').insert(payload);
         if (error) throw error;
-        showToast('Miembro registrado correctamente.');
+        showToast(
+          chosenConsolidator.id === profile.id
+            ? 'Miembro registrado correctamente.'
+            : `Miembro registrado y asignado a ${chosenConsolidator.full_name}.`
+        );
+        if (chosenConsolidator.id !== profile.id) {
+          setAssignNotificationModal({
+            open: true,
+            memberName: payload.full_name,
+            consolidatorName: chosenConsolidator.full_name,
+            consolidatorPhone: chosenConsolidator.phone,
+            memberPhone: payload.phone,
+            memberMunicipio: payload.municipio,
+            status: payload.status,
+          });
+        }
       }
       setMemberModal({ open: false });
       fetchMembers();
@@ -1042,8 +1084,90 @@ export default function DashboardClient({ profile }: Props) {
                         <td className="text-secondary">
                           {member.phone ?? '—'}
                         </td>
-                        <td className="text-secondary">
-                          {member.consolidator_name}
+                        <td style={{ minWidth: '180px' }}>
+                          {profile.role === 'principal' || profile.role === 'admin' ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <select
+                                className="form-select"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.3rem 1.75rem 0.3rem 0.6rem',
+                                  fontSize: '0.8rem',
+                                  background: 'var(--bg-secondary)',
+                                  borderColor: 'var(--border-subtle)',
+                                  borderRadius: '6px',
+                                }}
+                                value={member.consolidator_id || ''}
+                                disabled={assigningConsolidatorId === member.id}
+                                onChange={async (e) => {
+                                  const targetId = e.target.value;
+                                  const chosen = profiles.find((p) => p.id === targetId);
+                                  if (!chosen) return;
+                                  setAssigningConsolidatorId(member.id);
+                                  try {
+                                    const { error } = await supabase
+                                      .from('members')
+                                      .update({
+                                        consolidator_id: chosen.id,
+                                        consolidator_name: chosen.full_name,
+                                      })
+                                      .eq('id', member.id);
+                                    if (error) throw error;
+                                    showToast(`Asignado a ${chosen.full_name}`);
+                                    fetchMembers();
+                                    if (chosen.id !== profile.id) {
+                                      setAssignNotificationModal({
+                                        open: true,
+                                        memberName: member.full_name,
+                                        consolidatorName: chosen.full_name,
+                                        consolidatorPhone: chosen.phone,
+                                        memberPhone: member.phone,
+                                        memberMunicipio: member.municipio,
+                                        status: member.status,
+                                      });
+                                    }
+                                  } catch (err: any) {
+                                    showToast(err.message || 'Error al reasignar.', 'error');
+                                  } finally {
+                                    setAssigningConsolidatorId(null);
+                                  }
+                                }}
+                              >
+                                {member.consolidator_id && !profiles.some((p) => p.id === member.consolidator_id) && (
+                                  <option value={member.consolidator_id}>
+                                    {member.consolidator_name || 'Consolidador previo'}
+                                  </option>
+                                )}
+                                {profiles.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                                  </option>
+                                ))}
+                              </select>
+                              {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
+                                const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
+                                if (!currentConsolidator?.phone) return null;
+                                const cleanPhone = currentConsolidator.phone.replace(/\D/g, '');
+                                const msg = encodeURIComponent(
+                                  `Hola ${currentConsolidator.full_name}, Dios te bendiga 🙏. Te recuerdo el seguimiento asignado para el miembro: ${member.full_name} (Tel: ${member.phone || 'No registrado'}, Municipio: ${member.municipio || 'No especificado'}).`
+                                );
+                                return (
+                                  <a
+                                    href={`https://wa.me/${cleanPhone}?text=${msg}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-secondary btn-icon"
+                                    style={{ width: '28px', height: '28px', color: '#25D366', flexShrink: 0 }}
+                                    title="Notificar por WhatsApp a este consolidador"
+                                  >
+                                    <MessageCircle size={13} />
+                                  </a>
+                                );
+                              })()}
+                            </div>
+                          ) : (
+                            <span className="text-secondary">{member.consolidator_name}</span>
+                          )}
                         </td>
                         <td
                           className="text-muted"
@@ -1173,6 +1297,7 @@ export default function DashboardClient({ profile }: Props) {
                         <th>Nombre</th>
                         <th>Miembro</th>
                         <th>Teléfono</th>
+                        <th>Consolidador</th>
                         <th style={{ textAlign: 'center' }}>WhatsApp</th>
                         <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
                       </tr>
@@ -1192,6 +1317,11 @@ export default function DashboardClient({ profile }: Props) {
                             <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
                           </td>
                           <td className="text-secondary">{member.phone || '—'}</td>
+                          <td>
+                            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
+                              {member.consolidator_name || 'Sin asignar'}
+                            </span>
+                          </td>
                           <td>
                             <div style={{ display: 'flex', justifyContent: 'center' }}>
                               {member.phone ? (
@@ -2133,11 +2263,8 @@ export default function DashboardClient({ profile }: Props) {
                   <option>Visitante</option>
                 </select>
               </div>
-            </div>
 
-
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
+              <div className="form-group">
                 <label className="form-label">Municipio</label>
                 <select
                   className="form-select"
@@ -2152,6 +2279,59 @@ export default function DashboardClient({ profile }: Props) {
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Consolidador Asignado *
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.consolidator_id}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
+                  }
+                >
+                  <option value={profile.id}>Yo mismo ({profile.full_name})</option>
+                  {profiles
+                    .filter((p) => p.id !== profile.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  El visitante se cargará en la vista del consolidador.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Flame size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Casa de Dios
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.house_group_id}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
+                  }
+                >
+                  <option value="">-- Sin Casa de Dios --</option>
+                  {houseGroups.map((hg) => (
+                    <option key={hg.id} value={hg.id}>
+                      {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  Opcional: vincular a Casa de Dios.
+                </span>
+              </div>
+            </div>
 
             <div className="form-group">
               <label className="form-label">Dirección</label>
@@ -2449,6 +2629,111 @@ export default function DashboardClient({ profile }: Props) {
                 Cerrar
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Modal de Notificación de Asignación a Consolidador ── */}
+      {assignNotificationModal?.open && (
+        <Modal
+          title="Miembro Asignado a Consolidador"
+          onClose={() => setAssignNotificationModal(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(0, 0, 0, 0.35))',
+              border: '1px solid var(--border-gold)',
+              borderRadius: '12px',
+              padding: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem'
+            }}>
+              <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                Se ha asignado a <strong style={{ color: 'var(--gold-primary)' }}>{assignNotificationModal.memberName}</strong> al consolidador <strong style={{ color: 'var(--text-primary)' }}>{assignNotificationModal.consolidatorName}</strong>.
+              </p>
+              <p className="text-secondary" style={{ fontSize: '0.82rem', margin: 0 }}>
+                El miembro ya está cargado en la vista personal del consolidador para su seguimiento y llamada.
+              </p>
+            </div>
+
+            {(() => {
+              const phoneClean = assignNotificationModal.consolidatorPhone ? assignNotificationModal.consolidatorPhone.replace(/\D/g, '') : '';
+              const whatsappText = `Hola ${assignNotificationModal.consolidatorName}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.\n\nSe te ha asignado un nuevo miembro para consolidación y seguimiento:\n\n👤 *Nombre:* ${assignNotificationModal.memberName}\n📞 *Teléfono:* ${assignNotificationModal.memberPhone || 'No registrado'}\n📍 *Municipio:* ${assignNotificationModal.memberMunicipio || 'No especificado'}\n🏷 *Estatus:* ${assignNotificationModal.status}\n\nPor favor comunícate con él/ella para darle la bienvenida y acompañarle en su proceso de fe. ¡Muchas bendiciones!`;
+              const whatsappUrl = phoneClean ? `https://wa.me/${phoneClean}?text=${encodeURIComponent(whatsappText)}` : '';
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                      Mensaje de Notificación sugerido:
+                    </label>
+                    <div style={{
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '8px',
+                      padding: '0.75rem 1rem',
+                      fontSize: '0.82rem',
+                      color: 'var(--text-secondary)',
+                      whiteSpace: 'pre-line',
+                      maxHeight: '150px',
+                      overflowY: 'auto'
+                    }}>
+                      {whatsappText}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(whatsappText);
+                        showToast('Mensaje copiado al portapapeles.');
+                      }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.82rem', gap: '0.35rem' }}
+                    >
+                      <Copy size={14} />
+                      Copiar Mensaje
+                    </button>
+
+                    {phoneClean ? (
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-primary"
+                        style={{
+                          background: '#25D366',
+                          borderColor: '#25D366',
+                          color: '#fff',
+                          fontSize: '0.82rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          textDecoration: 'none'
+                        }}
+                        onClick={() => setAssignNotificationModal(null)}
+                      >
+                        <MessageCircle size={15} />
+                        Enviar WhatsApp al Consolidador
+                      </a>
+                    ) : (
+                      <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                        (El consolidador no tiene teléfono guardado)
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => setAssignNotificationModal(null)}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.82rem' }}
+                    >
+                      Listo
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </Modal>
       )}
