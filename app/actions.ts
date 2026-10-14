@@ -35,12 +35,12 @@ export async function signOut() {
 
 /* ─── Guard: admin o principal ─────────────────────────────── */
 
-async function assertAdminOrPrincipal(): Promise<{ error: string } | null> {
+async function assertAdminOrPrincipal() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: 'No autenticado' };
+  if (!user) throw new Error('No autenticado');
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -49,10 +49,8 @@ async function assertAdminOrPrincipal(): Promise<{ error: string } | null> {
     .single();
 
   if (profile?.role !== 'principal' && profile?.role !== 'admin') {
-    return { error: 'Sin permisos suficientes' };
+    throw new Error('Sin permisos suficientes');
   }
-
-  return null;
 }
 
 /* ─── USUARIOS (solo principal) ─────────────────────────── */
@@ -63,11 +61,11 @@ export async function adminCreateUser(data: {
   full_name: string;
   phone: string;
   role: Role;
-}): Promise<{ error: string } | void> {
-  const guardError = await assertAdminOrPrincipal();
-  if (guardError) return guardError;
+}) {
+  await assertAdminOrPrincipal();
 
   const admin = createAdminClient();
+
   const email = usernameToEmail(data.username);
 
   const { data: newUser, error } = await admin.auth.admin.createUser({
@@ -76,27 +74,22 @@ export async function adminCreateUser(data: {
     email_confirm: true,
   });
 
-  if (error) return { error: error.message };
+  if (error) throw new Error(error.message);
 
-  const { error: profileError } = await admin.from('profiles').upsert({
+  const { error: profileError } = await admin.from('profiles').insert({
     id: newUser.user.id,
     username: data.username.toLowerCase().trim(),
     full_name: data.full_name,
     phone: data.phone || null,
     role: data.role,
-  }, { onConflict: 'id' });
+  });
 
-  if (profileError) return { error: profileError.message };
-
+  if (profileError) throw new Error(profileError.message);
   revalidatePath('/dashboard');
 }
 
-export async function adminUpdateUserRole(
-  userId: string,
-  role: Role
-): Promise<{ error: string } | void> {
-  const guardError = await assertAdminOrPrincipal();
-  if (guardError) return guardError;
+export async function adminUpdateUserRole(userId: string, role: Role) {
+  await assertAdminOrPrincipal();
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -104,7 +97,7 @@ export async function adminUpdateUserRole(
     .update({ role })
     .eq('id', userId);
 
-  if (error) return { error: error.message };
+  if (error) throw new Error(error.message);
   revalidatePath('/dashboard');
 }
 
@@ -117,9 +110,8 @@ export async function adminUpdateUser(
     phone?: string;
     role?: Role;
   }
-): Promise<{ error: string } | void> {
-  const guardError = await assertAdminOrPrincipal();
-  if (guardError) return guardError;
+) {
+  await assertAdminOrPrincipal();
 
   const admin = createAdminClient();
 
@@ -133,7 +125,7 @@ export async function adminUpdateUser(
       userId,
       authPayload
     );
-    if (authError) return { error: authError.message };
+    if (authError) throw new Error(authError.message);
   }
 
   // Update profile
@@ -148,79 +140,8 @@ export async function adminUpdateUser(
       .from('profiles')
       .update(profilePayload)
       .eq('id', userId);
-    if (profileError) return { error: profileError.message };
+    if (profileError) throw new Error(profileError.message);
   }
 
   revalidatePath('/dashboard');
 }
-
-export async function adminDeleteUser(userId: string): Promise<{ error: string } | void> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: 'No autenticado' };
-
-  const { data: currentProfile } = await supabase
-    .from('profiles')
-    .select('id, role, full_name')
-    .eq('id', user.id)
-    .single();
-
-  if (currentProfile?.role !== 'principal') {
-    return { error: 'Solo el usuario Principal tiene permisos para eliminar usuarios. Los administradores no pueden borrar usuarios.' };
-  }
-
-  if (user.id === userId) {
-    return { error: 'No puedes eliminar tu propia cuenta.' };
-  }
-
-  const admin = createAdminClient();
-
-  // 1. Reasignar líderes de casas a null si estaban asignados al usuario que se va a borrar
-  await admin
-    .from('house_groups')
-    .update({ leader_id: null })
-    .eq('leader_id', userId);
-
-  // 2. Reasignar miembros que tenían a este usuario como consolidador al usuario principal
-  await admin
-    .from('members')
-    .update({
-      consolidator_id: user.id,
-      consolidator_name: currentProfile.full_name || 'Principal',
-    })
-    .eq('consolidator_id', userId);
-
-  // 3. Eliminar de public.profiles
-  const { error: profileError } = await admin
-    .from('profiles')
-    .delete()
-    .eq('id', userId);
-
-  if (profileError) return { error: profileError.message };
-
-  // 4. Eliminar de auth.users
-  const { error: authError } = await admin.auth.admin.deleteUser(userId);
-  if (authError) return { error: authError.message };
-
-  revalidatePath('/dashboard');
-}
-
-export async function updateUserActivity(): Promise<void> {
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-
-    await supabase
-      .from('profiles')
-      .update({ last_seen_at: new Date().toISOString() })
-      .eq('id', user.id);
-  } catch {
-    // Si la columna aún no existe o hay algún error de red, silenciar
-  }
-}
-

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
+import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -48,14 +48,6 @@ import {
   BookOpen,
   Activity,
   CalendarDays,
-  Phone,
-  MessageCircle,
-  UserCheck,
-  Bell,
-  Send,
-  Copy,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
 /* ─── Types & Constants ─────────────────────────────────── */
@@ -67,7 +59,6 @@ const STATUS_COLORS: Record<string, string> = {
   Nuevo: 'var(--color-nuevo)',
   Reconciliado: 'var(--color-reconciliado)',
   Visitante: 'var(--color-visitante)',
-  Consolidado: '#10b981',
 };
 
 const CASA_COLORS = [
@@ -87,59 +78,9 @@ const ROLE_LABELS: Record<Role, string> = {
   principal: 'Principal',
   admin: 'Administrador',
   user: 'Consolidador',
-  pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
-
-const TWENTY_MINUTES_MS = 20 * 60 * 1000;
-
-function getUserOnlineStatus(lastSeenAt?: string | null): {
-  isOnline: boolean;
-  label: string;
-  timeFormatted: string;
-} {
-  if (!lastSeenAt) {
-    return {
-      isOnline: false,
-      label: 'Desconectado',
-      timeFormatted: 'Sin registro',
-    };
-  }
-
-  const lastSeenDate = new Date(lastSeenAt);
-  const now = new Date();
-  const diffMs = now.getTime() - lastSeenDate.getTime();
-
-  if (isNaN(diffMs)) {
-    return {
-      isOnline: false,
-      label: 'Desconectado',
-      timeFormatted: 'Desconocido',
-    };
-  }
-
-  const isOnline = diffMs >= 0 && diffMs < TWENTY_MINUTES_MS;
-  const diffMinutes = Math.max(0, Math.floor(diffMs / (60 * 1000)));
-  const diffHours = Math.floor(diffMinutes / 60);
-
-  let timeFormatted = '';
-  if (diffMinutes < 1) {
-    timeFormatted = 'Ahora mismo';
-  } else if (diffMinutes < 60) {
-    timeFormatted = `Hace ${diffMinutes} min`;
-  } else if (diffHours < 24) {
-    timeFormatted = `Hoy a las ${lastSeenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  } else {
-    timeFormatted = `${lastSeenDate.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${lastSeenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  }
-
-  return {
-    isOnline,
-    label: isOnline ? 'En línea' : 'Desconectado',
-    timeFormatted,
-  };
-}
+type ActiveTab = 'home' | 'members' | 'reports' | 'casas' | 'services' | 'users';
 
 /* ─── Sub-components ────────────────────────────────────── */
 
@@ -284,7 +225,7 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -295,7 +236,7 @@ export default function DashboardClient({ profile }: Props) {
   const [assigningMember, setAssigningMember] = useState<string | null>(null);
 
   /* Date Filter */
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
 
   /* Daily Verse */
   const [versiculo, setVersiculo] = useState<{ texto: string; referencia: string } | null>(null);
@@ -332,22 +273,10 @@ export default function DashboardClient({ profile }: Props) {
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
-    consolidator_id: profile.id,
-    house_group_id: '',
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
   const [memberError, setMemberError] = useState('');
-  const [assigningConsolidatorId, setAssigningConsolidatorId] = useState<string | null>(null);
-  const [assignNotificationModal, setAssignNotificationModal] = useState<{
-    open: boolean;
-    memberName: string;
-    consolidatorName: string;
-    consolidatorPhone: string | null;
-    memberPhone: string | null;
-    memberMunicipio: string | null;
-    status: string;
-  } | null>(null);
 
   /* User modal */
   const [userModal, setUserModal] = useState<{ open: boolean; userId?: string }>({ open: false });
@@ -361,9 +290,6 @@ export default function DashboardClient({ profile }: Props) {
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [savingUser, setSavingUser] = useState(false);
   const [userError, setUserError] = useState('');
-  const [deleteUserConfirm, setDeleteUserConfirm] = useState<string | null>(null);
-  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
-  const [showTeamStatus, setShowTeamStatus] = useState(false);
 
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -386,7 +312,43 @@ export default function DashboardClient({ profile }: Props) {
   /* Service History Modal */
   const [historyModal, setHistoryModal] = useState<{ open: boolean; houseGroupId?: string; houseGroupName?: string }>({ open: false });
 
+  /* Service Control Modal */
+  const [serviceModal, setServiceModal] = useState<{ open: boolean; houseGroupId?: string }>({ open: false });
+  const emptyServiceForm = {
+    topic: '',
+    date: new Date().toISOString().split('T')[0],
+    start_time: '',
+    end_time: '',
+    attendeeIds: [] as string[],
+  };
+  const [serviceForm, setServiceForm] = useState(emptyServiceForm);
+  const [savingService, setSavingService] = useState(false);
+  const [serviceError, setServiceError] = useState('');
+  const [serviceSearch, setServiceSearch] = useState('');
+
+  /* Fast New Member Modal inside Service */
+  const [fastNewMemberOpen, setFastNewMemberOpen] = useState(false);
+  const emptyFastMember = { full_name: '', phone: '' };
+  const [fastMemberForm, setFastMemberForm] = useState(emptyFastMember);
+  const [savingFastMember, setSavingFastMember] = useState(false);
   const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
+
+  /* Control de Servicios Tab state */
+  const [selectedServiceHouseId, setSelectedServiceHouseId] = useState<string>('');
+  const [meetingToManage, setMeetingToManage] = useState<HouseGroupMeeting | null>(null);
+  const [meetingToDelete, setMeetingToDelete] = useState<HouseGroupMeeting | null>(null);
+  const [editingMeeting, setEditingMeeting] = useState<HouseGroupMeeting | null>(null);
+  const [editMeetingForm, setEditMeetingForm] = useState({
+    topic: '',
+    date: '',
+    start_time: '',
+    end_time: '',
+  });
+  const [savingEditMeeting, setSavingEditMeeting] = useState(false);
+  const [editMeetingError, setEditMeetingError] = useState('');
+  const [meetingSearchMember, setMeetingSearchMember] = useState<string>('');
+  const [addingAttendee, setAddingAttendee] = useState(false);
+  const [removingAttendeeId, setRemovingAttendeeId] = useState<string | null>(null);
 
   /* Toast */
   const [toast, setToast] = useState<{
@@ -412,7 +374,7 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   const fetchProfiles = useCallback(async () => {
-    if (profile.role !== 'principal' && profile.role !== 'admin' && profile.role !== 'pastor') return;
+    if (profile.role !== 'principal' && profile.role !== 'admin') return;
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -422,6 +384,10 @@ export default function DashboardClient({ profile }: Props) {
     setProfiles(data ?? []);
     setLoadingProfiles(false);
   }, [supabase, profile.role]);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
 
   const fetchCasasData = useCallback(async () => {
     try {
@@ -439,86 +405,9 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   useEffect(() => {
-    fetchMembers();
-    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
-      fetchProfiles();
-      fetchCasasData();
-    }
-  }, [fetchMembers, fetchProfiles, fetchCasasData, profile.role]);
-
-  useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
-    if (activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
+    if (activeTab === 'users' || activeTab === 'casas' || activeTab === 'services') fetchProfiles();
+    if (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'services') fetchCasasData();
   }, [activeTab, fetchProfiles, fetchCasasData]);
-
-  /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
-  const lastActivityRecordedRef = useRef<number>(0);
-
-  const recordActivity = useCallback(async (force = false) => {
-    const now = Date.now();
-    if (!force && now - lastActivityRecordedRef.current < 45000) {
-      return;
-    }
-    lastActivityRecordedRef.current = now;
-
-    try {
-      await supabase
-        .from('profiles')
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq('id', profile.id);
-    } catch {
-      // Silenciar si la columna no existe aún
-    }
-  }, [profile.id, supabase]);
-
-  useEffect(() => {
-    recordActivity(true);
-
-    const handleInteraction = () => {
-      recordActivity();
-    };
-
-    window.addEventListener('click', handleInteraction, { passive: true });
-    window.addEventListener('keydown', handleInteraction, { passive: true });
-    window.addEventListener('touchstart', handleInteraction, { passive: true });
-    window.addEventListener('scroll', handleInteraction, { passive: true });
-
-    const heartbeat = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        recordActivity(true);
-      }
-    }, 2 * 60 * 1000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        recordActivity(true);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('click', handleInteraction);
-      window.removeEventListener('keydown', handleInteraction);
-      window.removeEventListener('touchstart', handleInteraction);
-      window.removeEventListener('scroll', handleInteraction);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(heartbeat);
-    };
-  }, [recordActivity]);
-
-  useEffect(() => {
-    recordActivity(true);
-  }, [activeTab, recordActivity]);
-
-  useEffect(() => {
-    if (profile.role !== 'principal' && profile.role !== 'admin') return;
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        fetchProfiles();
-      }
-    }, 45000);
-    return () => clearInterval(interval);
-  }, [profile.role, fetchProfiles]);
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
@@ -545,8 +434,6 @@ export default function DashboardClient({ profile }: Props) {
         matchDate = created >= startOfWeek;
       } else if (dateFilter === 'month') {
         matchDate = created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
-      } else if (dateFilter === 'year') {
-        matchDate = created.getFullYear() === now.getFullYear();
       }
     }
 
@@ -558,7 +445,6 @@ export default function DashboardClient({ profile }: Props) {
     nuevo: members.filter((m) => m.status === 'Nuevo').length,
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
-    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
   };
 
   const statusChartData = [
@@ -573,16 +459,11 @@ export default function DashboardClient({ profile }: Props) {
       value: stats.visitante,
       color: STATUS_COLORS.Visitante,
     },
-    {
-      name: 'Consolidados',
-      value: stats.consolidado,
-      color: STATUS_COLORS.Consolidado,
-    },
   ];
 
   const municipioChartData = Object.entries(
     filteredMembers.reduce((acc: Record<string, number>, m) => {
-      if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante' || m.status === 'Consolidado') {
+      if (m.status === 'Nuevo' || m.status === 'Reconciliado' || m.status === 'Visitante') {
         if (m.municipio) {
           acc[m.municipio] = (acc[m.municipio] ?? 0) + 1;
         }
@@ -619,26 +500,7 @@ export default function DashboardClient({ profile }: Props) {
   /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
   const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
 
-  const filteredMeetings = houseGroupMeetings.filter(meeting => {
-    if (dateFilter === 'all') return true;
-    const meetingDate = new Date(meeting.date + 'T12:00:00Z');
-    const now = new Date();
-    if (dateFilter === 'today') {
-      return meetingDate.toDateString() === now.toDateString();
-    } else if (dateFilter === 'week') {
-      const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
-      const startOfWeek = new Date(new Date().setDate(diff));
-      startOfWeek.setHours(0, 0, 0, 0);
-      return meetingDate >= startOfWeek;
-    } else if (dateFilter === 'month') {
-      return meetingDate.getMonth() === now.getMonth() && meetingDate.getFullYear() === now.getFullYear();
-    } else if (dateFilter === 'year') {
-      return meetingDate.getFullYear() === now.getFullYear();
-    }
-    return true;
-  });
-
-  filteredMeetings.forEach((meeting) => {
+  houseGroupMeetings.forEach((meeting) => {
     const dateKey = meeting.date;
     const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
     if (!attendanceByDateAndHouse[dateKey]) {
@@ -667,30 +529,20 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Member CRUD ── */
   function openAddMember() {
-    if (profiles.length === 0) fetchProfiles();
-    if (houseGroups.length === 0) fetchCasasData();
-    setMemberForm({
-      ...emptyMemberForm,
-      consolidator_id: profile.id,
-      house_group_id: '',
-    });
+    setMemberForm(emptyMemberForm);
     setMemberError('');
     setMemberModal({ open: true });
   }
 
   function openEditMember(member: Member) {
-    if (profiles.length === 0) fetchProfiles();
-    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: formatearTelefono(member.phone),
+      phone: member.phone ?? '',
       status: member.status,
-      consolidator_id: member.consolidator_id || profile.id,
-      house_group_id: member.house_group_id || '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -704,20 +556,15 @@ export default function DashboardClient({ profile }: Props) {
     setSavingMember(true);
     setMemberError('');
 
-    const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
-
     const payload = {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
       gender: memberForm.gender || null,
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
-      phone: memberForm.phone ? formatearTelefono(memberForm.phone) : null,
+      phone: memberForm.phone || null,
       status: memberForm.status,
-      is_consolidated: memberForm.status === 'Consolidado',
-      house_group_id: memberForm.house_group_id || null,
-      consolidator_id: chosenConsolidator.id,
-      consolidator_name: chosenConsolidator.full_name,
+      house_group_id: null,
     };
 
     try {
@@ -729,24 +576,16 @@ export default function DashboardClient({ profile }: Props) {
         if (error) throw error;
         showToast('Miembro actualizado correctamente.');
       } else {
-        const { error } = await supabase.from('members').insert(payload);
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        const { error } = await supabase.from('members').insert({
+          ...payload,
+          consolidator_id: user?.id,
+          consolidator_name: profile.full_name,
+        });
         if (error) throw error;
-        showToast(
-          chosenConsolidator.id === profile.id
-            ? 'Miembro registrado correctamente.'
-            : `Miembro registrado y asignado a ${chosenConsolidator.full_name}.`
-        );
-        if (chosenConsolidator.id !== profile.id) {
-          setAssignNotificationModal({
-            open: true,
-            memberName: payload.full_name,
-            consolidatorName: chosenConsolidator.full_name,
-            consolidatorPhone: chosenConsolidator.phone,
-            memberPhone: payload.phone,
-            memberMunicipio: payload.municipio,
-            status: payload.status,
-          });
-        }
+        showToast('Miembro registrado correctamente.');
       }
       setMemberModal({ open: false });
       fetchMembers();
@@ -773,25 +612,6 @@ export default function DashboardClient({ profile }: Props) {
     setDeleteConfirm(null);
   }
 
-  async function toggleConsolidado(member: Member) {
-    try {
-      const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
-      const newStatus: Member['status'] = isNowConsolidated ? 'Consolidado' : 'Nuevo';
-      const { error } = await supabase
-        .from('members')
-        .update({
-          status: newStatus,
-          is_consolidated: isNowConsolidated,
-        })
-        .eq('id', member.id);
-      if (error) throw error;
-      showToast(isNowConsolidated ? 'Miembro marcado como Consolidado.' : 'Marca de consolidado removida.');
-      fetchMembers();
-    } catch (err: any) {
-      showToast('Error al actualizar estado.', 'error');
-    }
-  }
-
   /* ── User management ── */
   async function saveUser() {
     if (!userModal.userId && (!userForm.username || !userForm.password || !userForm.full_name)) {
@@ -806,18 +626,10 @@ export default function DashboardClient({ profile }: Props) {
     setUserError('');
     try {
       if (userModal.userId) {
-        const result = await adminUpdateUser(userModal.userId, userForm);
-        if (result && 'error' in result) {
-          setUserError(result.error);
-          return;
-        }
+        await adminUpdateUser(userModal.userId, userForm);
         showToast('Usuario actualizado exitosamente.');
       } else {
-        const result = await adminCreateUser(userForm);
-        if (result && 'error' in result) {
-          setUserError(result.error);
-          return;
-        }
+        await adminCreateUser(userForm);
         showToast('Usuario creado exitosamente.');
       }
       setUserModal({ open: false });
@@ -834,38 +646,11 @@ export default function DashboardClient({ profile }: Props) {
 
   async function updateRole(userId: string, role: Role) {
     try {
-      const result = await adminUpdateUserRole(userId, role);
-      if (result && 'error' in result) {
-        showToast(result.error, 'error');
-        return;
-      }
+      await adminUpdateUserRole(userId, role);
       showToast('Rol actualizado.');
       fetchProfiles();
     } catch {
       showToast('Error al actualizar el rol.', 'error');
-    }
-  }
-
-  async function handleDeleteUser(userId: string) {
-    if (profile.role !== 'principal') {
-      showToast('Solo el Principal puede eliminar usuarios.', 'error');
-      return;
-    }
-    setDeletingUserId(userId);
-    try {
-      const result = await adminDeleteUser(userId);
-      if (result && 'error' in result) {
-        showToast(result.error, 'error');
-        return;
-      }
-      showToast('Usuario eliminado permanentemente.');
-      setDeleteUserConfirm(null);
-      fetchProfiles();
-      fetchMembers();
-    } catch (err: any) {
-      showToast(err?.message || 'Error al eliminar usuario.', 'error');
-    } finally {
-      setDeletingUserId(null);
     }
   }
 
@@ -918,18 +703,204 @@ export default function DashboardClient({ profile }: Props) {
     setDeleteCasaConfirm(null);
   }
 
+  /* ── Service Control ── */
+  async function saveServiceControl() {
+    if (!serviceForm.topic.trim()) {
+      setServiceError('El título de la enseñanza es requerido.');
+      return;
+    }
+    if (!serviceForm.start_time || !serviceForm.end_time) {
+      setServiceError('Las horas de inicio y fin son requeridas.');
+      return;
+    }
+    setSavingService(true);
+    setServiceError('');
+
+    try {
+      const { data: meetingData, error: meetingError } = await supabase
+        .from('house_group_meetings')
+        .insert({
+          house_group_id: serviceModal.houseGroupId,
+          topic: serviceForm.topic.trim(),
+          date: serviceForm.date,
+          start_time: serviceForm.start_time,
+          end_time: serviceForm.end_time,
+        })
+        .select('id')
+        .single();
+      
+      if (meetingError) throw meetingError;
+
+      if (serviceForm.attendeeIds.length > 0) {
+        const attendancePayload = serviceForm.attendeeIds.map(memberId => ({
+          meeting_id: meetingData.id,
+          member_id: memberId,
+        }));
+        
+        const { error: attError } = await supabase
+          .from('attendances')
+          .insert(attendancePayload);
+          
+        if (attError) throw attError;
+      }
+      
+      showToast('Control de servicio guardado correctamente.');
+      setServiceModal({ open: false });
+      fetchCasasData();
+    } catch (err: any) {
+      console.error(err);
+      setServiceError(err.message || 'Error al guardar el control de servicio.');
+    } finally {
+      setSavingService(false);
+    }
+  }
+
+  async function deleteMeeting(meetingId: string) {
+    try {
+      await supabase.from('attendances').delete().eq('meeting_id', meetingId);
+      const { error } = await supabase.from('house_group_meetings').delete().eq('id', meetingId);
+      if (error) throw error;
+      showToast('Enseñanza eliminada correctamente.');
+      setMeetingToDelete(null);
+      if (meetingToManage?.id === meetingId) {
+        setMeetingToManage(null);
+      }
+      if (editingMeeting?.id === meetingId) {
+        setEditingMeeting(null);
+      }
+      fetchCasasData();
+    } catch (err: any) {
+      showToast(err.message || 'Error al eliminar enseñanza.', 'error');
+    }
+  }
+
+  async function saveEditMeeting() {
+    if (!editingMeeting) return;
+    if (!editMeetingForm.topic.trim()) {
+      setEditMeetingError('El título o tema de la enseñanza es requerido.');
+      return;
+    }
+    if (!editMeetingForm.date) {
+      setEditMeetingError('La fecha es requerida.');
+      return;
+    }
+    setSavingEditMeeting(true);
+    setEditMeetingError('');
+    try {
+      const { error } = await supabase
+        .from('house_group_meetings')
+        .update({
+          topic: editMeetingForm.topic.trim(),
+          date: editMeetingForm.date,
+          start_time: editMeetingForm.start_time || null,
+          end_time: editMeetingForm.end_time || null,
+        })
+        .eq('id', editingMeeting.id);
+
+      if (error) throw error;
+
+      showToast('Enseñanza actualizada correctamente.');
+      setEditingMeeting(null);
+      fetchCasasData();
+    } catch (err: any) {
+      setEditMeetingError(err.message || 'Error al actualizar la enseñanza.');
+    } finally {
+      setSavingEditMeeting(false);
+    }
+  }
+
+  async function removeAttendee(meetingId: string, memberId: string) {
+    setRemovingAttendeeId(memberId);
+    try {
+      const { error } = await supabase
+        .from('attendances')
+        .delete()
+        .eq('meeting_id', meetingId)
+        .eq('member_id', memberId);
+      if (error) throw error;
+      showToast('Miembro retirado de la asistencia.');
+      fetchCasasData();
+    } catch (err: any) {
+      showToast('Error al retirar miembro.', 'error');
+    } finally {
+      setRemovingAttendeeId(null);
+    }
+  }
+
+  async function addAttendee(meetingId: string, memberId: string) {
+    setAddingAttendee(true);
+    try {
+      const { error } = await supabase
+        .from('attendances')
+        .insert({
+          meeting_id: meetingId,
+          member_id: memberId,
+        });
+      if (error) throw error;
+      showToast('Miembro añadido a la asistencia.');
+      fetchCasasData();
+    } catch (err: any) {
+      showToast('Error al añadir miembro.', 'error');
+    } finally {
+      setAddingAttendee(false);
+    }
+  }
+
+  async function saveFastMember() {
+    if (!fastMemberForm.full_name.trim()) return;
+    setSavingFastMember(true);
+    try {
+      const targetHouseId = serviceModal.houseGroupId || selectedServiceHouseId || houseGroups[0]?.id || null;
+      const { data: inserted, error } = await supabase.from('members').insert({
+        full_name: fastMemberForm.full_name.trim(),
+        phone: fastMemberForm.phone || null,
+        status: 'Nuevo',
+        house_group_id: targetHouseId,
+        consolidator_id: profile?.id,
+        consolidator_name: profile?.full_name,
+      }).select('id').single();
+
+      if (error) throw error;
+      
+      if (meetingToManage) {
+        await supabase.from('attendances').insert({
+          meeting_id: meetingToManage.id,
+          member_id: inserted.id,
+        });
+        showToast('Asistente registrado y añadido a la enseñanza.');
+        fetchCasasData();
+      } else {
+        setServiceForm(prev => ({
+          ...prev,
+          attendeeIds: [...prev.attendeeIds, inserted.id]
+        }));
+        showToast('Asistente creado.');
+      }
+      
+      setFastNewMemberOpen(false);
+      setFastMemberForm(emptyFastMember);
+      fetchMembers();
+    } catch (err: any) {
+      console.error(err);
+      showToast('Error al crear asistente.', 'error');
+    } finally {
+      setSavingFastMember(false);
+    }
+  }
+
   /* ── Tabs config ── */
-  const tabs = profile.role === 'pastor' ? [
-    { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
-  ] : [
+  const tabs = [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
-    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
-    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
+          {
+            key: 'services' as ActiveTab,
+            icon: <BookOpen size={15} />,
+            label: 'Control de Servicios',
+          },
           {
             key: 'users' as ActiveTab,
             icon: <Shield size={15} />,
@@ -1037,7 +1008,6 @@ export default function DashboardClient({ profile }: Props) {
               <option value="today">📅 Hoy</option>
               <option value="week">📅 Esta Semana</option>
               <option value="month">📅 Este Mes</option>
-              <option value="year">📅 Este Año</option>
             </select>
           </div>
         </div>
@@ -1061,12 +1031,11 @@ export default function DashboardClient({ profile }: Props) {
             )}
 
             <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Resumen de Registros</h2>
-            <div className="grid-5" style={{ marginBottom: '2rem' }}>
+            <div className="grid-4" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
               <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
-              <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
             </div>
           </div>
         )}
@@ -1075,17 +1044,26 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Members Tab ── */}
         {activeTab === 'members' && (
           <div className="animate-fade-in">
-            {/* Buscador optimizado de ancho completo */}
-            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
+            {/* Toolbar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.75rem',
+                marginBottom: '1rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div
+                style={{ flex: 1, minWidth: '200px', position: 'relative' }}
+              >
                 <Search
-                  size={18}
+                  size={15}
                   style={{
                     position: 'absolute',
-                    left: '1.2rem',
+                    left: '1rem',
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
+                    color: 'var(--text-muted)',
                     pointerEvents: 'none',
                   }}
                 />
@@ -1093,33 +1071,15 @@ export default function DashboardClient({ profile }: Props) {
                   className="form-input"
                   id="member-search"
                   type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
+                  placeholder="Buscar por nombre, ciudad o consolidador..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ 
-                    padding: '0.8rem 1rem 0.8rem 3rem', 
-                    fontSize: '1rem', 
-                    width: '100%',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-gold)',
-                    background: 'var(--bg-secondary)',
-                  }}
+                  style={{ paddingLeft: '2.5rem' }}
                 />
               </div>
-            </div>
 
-            {/* Toolbar secundaria (Filtros y Acción) */}
-            <div
-              style={{
-                display: 'flex',
-                gap: '0.75rem',
-                marginBottom: '1.5rem',
-                flexWrap: 'wrap',
-                justifyContent: 'space-between',
-              }}
-            >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
+                {['all', 'Nuevo', 'Reconciliado', 'Visitante'].map((s) => (
                   <button
                     key={s}
                     onClick={() => setFilterStatus(s)}
@@ -1136,216 +1096,16 @@ export default function DashboardClient({ profile }: Props) {
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                {(profile.role === 'principal' || profile.role === 'admin') && (
-                  <button
-                    type="button"
-                    onClick={() => setShowTeamStatus((prev) => !prev)}
-                    className={`btn ${showTeamStatus ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{
-                      padding: '0.55rem 0.85rem',
-                      fontSize: '0.8rem',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.45rem',
-                    }}
-                    id="toggle-team-status-btn"
-                    title="Ver estado de conexión del equipo"
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: profiles.some((p) => getUserOnlineStatus(p.last_seen_at).isOnline)
-                          ? '#10b981'
-                          : '#6b7280',
-                        boxShadow: profiles.some((p) => getUserOnlineStatus(p.last_seen_at).isOnline)
-                          ? '0 0 6px #10b981'
-                          : 'none',
-                        display: 'inline-block',
-                      }}
-                    />
-                    <span>
-                      Equipo ({profiles.filter((p) => getUserOnlineStatus(p.last_seen_at).isOnline).length} en línea)
-                    </span>
-                    {showTeamStatus ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                )}
-
-                <button
-                  onClick={openAddMember}
-                  className="btn btn-primary"
-                  id="add-member-btn"
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  <Plus size={16} />
-                  Agregar Miembro
-                </button>
-              </div>
-            </div>
-
-            {/* Panel de Estado de Conexión del Equipo (solo admin y principal) */}
-            {showTeamStatus && (profile.role === 'principal' || profile.role === 'admin') && (
-              <div
-                className="card animate-fade-in"
-                style={{
-                  marginBottom: '1.5rem',
-                  padding: '1.25rem',
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-gold)',
-                  borderRadius: '12px',
-                }}
+              <button
+                onClick={openAddMember}
+                className="btn btn-primary"
+                id="add-member-btn"
+                style={{ whiteSpace: 'nowrap' }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: '1rem',
-                    flexWrap: 'wrap',
-                    gap: '0.5rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <Activity size={18} style={{ color: 'var(--gold-primary)' }} />
-                    <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>
-                      Estado de Conexión de Perfiles y Consolidadores
-                    </h4>
-                    <span
-                      className="badge"
-                      style={{
-                        background: 'rgba(16, 185, 129, 0.15)',
-                        color: '#10b981',
-                        border: '1px solid rgba(16, 185, 129, 0.3)',
-                        fontSize: '0.75rem',
-                        padding: '0.15rem 0.55rem',
-                      }}
-                    >
-                      {profiles.filter((p) => getUserOnlineStatus(p.last_seen_at).isOnline).length} de {profiles.length} en línea
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      fetchProfiles();
-                      showToast('Estados actualizados');
-                    }}
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
-                    title="Actualizar estados ahora"
-                  >
-                    Actualizar ahora
-                  </button>
-                </div>
-
-                {profiles.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No hay perfiles disponibles.</p>
-                ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    {profiles.map((p) => {
-                      const status = getUserOnlineStatus(p.last_seen_at);
-                      return (
-                        <div
-                          key={p.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.75rem',
-                            padding: '0.7rem 0.9rem',
-                            borderRadius: '8px',
-                            background: status.isOnline ? 'rgba(16, 185, 129, 0.05)' : 'var(--bg-card)',
-                            border: status.isOnline
-                              ? '1px solid rgba(16, 185, 129, 0.3)'
-                              : '1px solid var(--border-subtle)',
-                          }}
-                        >
-                          <div style={{ position: 'relative' }}>
-                            <div
-                              className="avatar-placeholder"
-                              style={{ width: 38, height: 38, fontSize: '0.9rem' }}
-                            >
-                              {p.full_name ? p.full_name.charAt(0).toUpperCase() : '?'}
-                            </div>
-                            <span
-                              style={{
-                                position: 'absolute',
-                                bottom: -2,
-                                right: -2,
-                                width: 10,
-                                height: 10,
-                                borderRadius: '50%',
-                                backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                border: '2px solid var(--bg-card)',
-                                boxShadow: status.isOnline ? '0 0 6px #10b981' : 'none',
-                              }}
-                              title={status.label}
-                            />
-                          </div>
-
-                          <div style={{ overflow: 'hidden', flex: 1 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <p
-                                style={{
-                                  margin: 0,
-                                  fontWeight: 600,
-                                  fontSize: '0.85rem',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {p.full_name}
-                              </p>
-                              {p.id === profile.id && (
-                                <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)' }}>(Tú)</span>
-                              )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
-                              <span
-                                className={`badge badge-${p.role}`}
-                                style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}
-                              >
-                                {ROLE_LABELS[p.role]}
-                              </span>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                @{p.username}
-                              </span>
-                            </div>
-                            <p
-                              style={{
-                                margin: '0.25rem 0 0',
-                                fontSize: '0.72rem',
-                                color: status.isOnline ? '#10b981' : 'var(--text-muted)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.3rem',
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: '50%',
-                                  backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                  display: 'inline-block',
-                                }}
-                              />
-                              {status.isOnline ? `En línea (${status.timeFormatted})` : `Desconectado (${status.timeFormatted})`}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+                <Plus size={16} />
+                Agregar Miembro
+              </button>
+            </div>
 
             {/* Table */}
             {loadingMembers ? (
@@ -1395,7 +1155,7 @@ export default function DashboardClient({ profile }: Props) {
                   <thead>
                     <tr>
                       <th>Nombre</th>
-                      <th>Estado</th>
+                      <th>Miembro</th>
                       <th>Municipio</th>
                       <th>Teléfono</th>
                       <th>Consolidador</th>
@@ -1441,123 +1201,10 @@ export default function DashboardClient({ profile }: Props) {
                           {member.municipio ?? '—'}
                         </td>
                         <td className="text-secondary">
-                          {formatearTelefono(member.phone) || '—'}
+                          {member.phone ?? '—'}
                         </td>
-                        <td style={{ minWidth: '180px' }}>
-                          {profile.role === 'principal' || profile.role === 'admin' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                              <select
-                                className="form-select"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.3rem 1.75rem 0.3rem 0.6rem',
-                                  fontSize: '0.8rem',
-                                  background: 'var(--bg-secondary)',
-                                  borderColor: 'var(--border-subtle)',
-                                  borderRadius: '6px',
-                                }}
-                                value={member.consolidator_id || ''}
-                                disabled={assigningConsolidatorId === member.id}
-                                onChange={async (e) => {
-                                  const targetId = e.target.value;
-                                  const chosen = profiles.find((p) => p.id === targetId);
-                                  if (!chosen) return;
-                                  setAssigningConsolidatorId(member.id);
-                                  try {
-                                    const { error } = await supabase
-                                      .from('members')
-                                      .update({
-                                        consolidator_id: chosen.id,
-                                        consolidator_name: chosen.full_name,
-                                      })
-                                      .eq('id', member.id);
-                                    if (error) throw error;
-                                    showToast(`Asignado a ${chosen.full_name}`);
-                                    fetchMembers();
-                                    if (chosen.id !== profile.id) {
-                                      setAssignNotificationModal({
-                                        open: true,
-                                        memberName: member.full_name,
-                                        consolidatorName: chosen.full_name,
-                                        consolidatorPhone: chosen.phone,
-                                        memberPhone: member.phone,
-                                        memberMunicipio: member.municipio,
-                                        status: member.status,
-                                      });
-                                    }
-                                  } catch (err: any) {
-                                    showToast(err.message || 'Error al reasignar.', 'error');
-                                  } finally {
-                                    setAssigningConsolidatorId(null);
-                                  }
-                                }}
-                              >
-                                {member.consolidator_id && !profiles.some((p) => p.id === member.consolidator_id) && (
-                                  <option value={member.consolidator_id}>
-                                    {member.consolidator_name || 'Consolidador previo'}
-                                  </option>
-                                )}
-                                {profiles.map((p) => {
-                                  const status = getUserOnlineStatus(p.last_seen_at);
-                                  return (
-                                    <option key={p.id} value={p.id}>
-                                      {status.isOnline ? '🟢' : '⚪'} {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                              {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
-                                const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
-                                if (!currentConsolidator?.phone) return null;
-                                const msg = `Hola ${currentConsolidator.full_name}, Dios te bendiga 🙏. Te recuerdo el seguimiento asignado para el miembro: ${member.full_name} (Tel: ${formatearTelefono(member.phone) || 'No registrado'}, Municipio: ${member.municipio || 'No especificado'}).`;
-                                return (
-                                  <a
-                                    href={getWhatsAppUrl(currentConsolidator.phone, msg)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="btn btn-secondary btn-icon"
-                                    style={{ width: '28px', height: '28px', color: '#25D366', flexShrink: 0 }}
-                                    title="Notificar por WhatsApp a este consolidador"
-                                  >
-                                    <MessageCircle size={13} />
-                                  </a>
-                                );
-                              })()}
-                            </div>
-                            {member.consolidator_id && (() => {
-                              const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
-                              if (!currentConsolidator) return null;
-                              const status = getUserOnlineStatus(currentConsolidator.last_seen_at);
-                              return (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.3rem',
-                                    marginTop: '0.2rem',
-                                    fontSize: '0.72rem',
-                                    color: status.isOnline ? '#10b981' : 'var(--text-muted)',
-                                  }}
-                                  title={status.label + ' - ' + status.timeFormatted}
-                                >
-                                  <span
-                                    style={{
-                                      width: 6,
-                                      height: 6,
-                                      borderRadius: '50%',
-                                      backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                      boxShadow: status.isOnline ? '0 0 4px #10b981' : 'none',
-                                    }}
-                                  />
-                                  <span>{status.isOnline ? 'En línea' : status.timeFormatted}</span>
-                                </div>
-                              );
-                            })()}
-                            </div>
-                          ) : (
-                            <span className="text-secondary">{member.consolidator_name}</span>
-                          )}
+                        <td className="text-secondary">
+                          {member.consolidator_name}
                         </td>
                         <td
                           className="text-muted"
@@ -1634,134 +1281,6 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
-        {/* ── Seguimiento Tab ── */}
-        {activeTab === 'seguimiento' && (
-          <div className="animate-fade-in">
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
-              Gestión y Seguimiento de Llamadas
-            </h2>
-            
-            {/* Buscador optimizado de ancho completo */}
-            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search
-                  size={18}
-                  style={{
-                    position: 'absolute',
-                    left: '1.2rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={{ 
-                    padding: '0.8rem 1rem 0.8rem 3rem', 
-                    fontSize: '1rem', 
-                    width: '100%',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-gold)',
-                    background: 'var(--bg-secondary)',
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="card" style={{ padding: '1.5rem' }}>
-              {filteredMembers.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                  <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                  <p>No hay miembros asignados para hacer seguimiento.</p>
-                </div>
-              ) : (
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Estado</th>
-                        <th>Teléfono</th>
-                        <th>Consolidador</th>
-                        <th style={{ textAlign: 'center' }}>WhatsApp</th>
-                        <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredMembers.map((member) => (
-                        <tr key={member.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                              <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
-                                {member.full_name.charAt(0).toUpperCase()}
-                              </div>
-                              <span style={{ fontWeight: 600 }}>{member.full_name}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
-                          </td>
-                          <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
-                          <td>
-                            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                              {member.consolidator_name || 'Sin asignar'}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                              {member.phone ? (
-                                <a
-                                  href={getWhatsAppUrl(member.phone, `Hola ${member.full_name}, te escribimos de la Iglesia Avivamiento León de la Tribu de Judá`)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="btn btn-primary btn-icon"
-                                  style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
-                                  title="Enviar WhatsApp"
-                                >
-                                  <MessageCircle size={14} />
-                                </a>
-                              ) : (
-                                <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                              {member.is_consolidated ? (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: '#10b981', borderColor: '#10b981' }}
-                                >
-                                  <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
-                                  Consolidado
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
-                                >
-                                  Marcar Consolidado
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* ── Reports Tab ── */}
         {activeTab === 'reports' && (
           <div className="animate-fade-in">
@@ -1821,58 +1340,53 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
 
                 {/* Status pie chart */}
-                <div className="card" style={{ padding: '1.5rem', overflow: 'hidden' }}>
+                <div className="card" style={{ padding: '1.5rem' }}>
                   <h3
                     className="font-cinzel"
-                    style={{ fontSize: '0.95rem', marginBottom: '1rem' }}
+                    style={{ fontSize: '0.95rem', marginBottom: '1.5rem' }}
                   >
                     Distribución por Estado
                   </h3>
-                  {/* Donut chart sin labels flotantes + leyenda manual debajo */}
-                  <div style={{ position: 'relative' }}>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <PieChart>
-                        <Pie
-                          data={statusChartData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={95}
-                          paddingAngle={4}
-                          dataKey="value"
-                          isAnimationActive={true}
-                        >
-                          {statusChartData.map((entry, i) => (
-                            <Cell key={i} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            background: '#1a1a2e',
-                            border: '1px solid #c9a84c',
-                            borderRadius: '8px',
-                            color: '#f0e6c8',
-                            fontSize: '0.82rem',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                          }}
-                          itemStyle={{ color: '#f0e6c8' }}
-                          labelStyle={{ color: '#c9a84c', fontWeight: 600 }}
-                          formatter={(value: number, name: string) => [value, name]}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  {/* Leyenda manual en grid 2x2 para evitar overflow */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 1rem', marginTop: '1rem' }}>
-                    {statusChartData.map((entry) => (
-                      <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: entry.color, flexShrink: 0, display: 'inline-block' }} />
-                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {entry.name}: <strong style={{ color: 'var(--text-primary)' }}>{entry.value}</strong>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={statusChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={65}
+                        outerRadius={105}
+                        paddingAngle={4}
+                        dataKey="value"
+                        label={({ name, value }) => `${name}: ${value}`}
+                        labelLine={false}
+                      >
+                        {statusChartData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border-gold)',
+                          borderRadius: '8px',
+                          color: 'var(--text-primary)',
+                          fontSize: '0.85rem',
+                        }}
+                      />
+                      <Legend
+                        formatter={(v) => (
+                          <span
+                            style={{
+                              color: 'var(--text-secondary)',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            {v}
+                          </span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
 
                 {/* City bar chart */}
@@ -2000,7 +1514,7 @@ export default function DashboardClient({ profile }: Props) {
                         Sin registros de servicios con fecha aún
                       </p>
                       <p style={{ fontSize: '0.85rem' }}>
-                        No hay registros de actividades o servicios registrados para este período.
+                        Registra los servicios realizados desde <strong>Casa de Dios &gt; Gestionar Casas &gt; Control de Servicio</strong> para visualizar la comparativa por fecha.
                       </p>
                     </div>
                   ) : (
@@ -2158,6 +1672,17 @@ export default function DashboardClient({ profile }: Props) {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedServiceHouseId(casa.id);
+                                      setActiveTab('services');
+                                    }}
+                                    className="btn btn-primary btn-icon"
+                                    title="Ir a Control de Servicios"
+                                  >
+                                    <BookOpen size={13} />
+                                  </button>
+                                  
                                   <button
                                     onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
                                     className="btn btn-secondary btn-icon"
@@ -2374,6 +1899,226 @@ export default function DashboardClient({ profile }: Props) {
             )}
           </div>
         )}
+
+        {/* ── Control de Servicios Tab (principal & admin only) ── */}
+        {activeTab === 'services' && (profile.role === 'principal' || profile.role === 'admin') && (
+          <div className="animate-fade-in">
+            {/* Header */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h2 className="font-cinzel" style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <BookOpen size={22} style={{ color: 'var(--gold-primary)' }} />
+                Control de Servicios de Casas de Dios
+              </h2>
+              <p className="text-secondary" style={{ fontSize: '0.85rem' }}>
+                Selecciona una Casa de Dios para gestionar sus enseñanzas, asistencias y participantes.
+              </p>
+            </div>
+
+            {houseGroups.length === 0 ? (
+              <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
+                <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay Casas de Dios registradas</h3>
+                <p>Primero debes registrar al menos una Casa de Dios desde el menú <strong>Casa de Dios</strong>.</p>
+              </div>
+            ) : (() => {
+              const currentHouseId = selectedServiceHouseId || houseGroups[0]?.id || '';
+              const currentHouse = houseGroups.find(h => h.id === currentHouseId) || houseGroups[0];
+              const meetingsForHouse = houseGroupMeetings
+                .filter(m => m.house_group_id === currentHouse.id)
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              const meetingIds = meetingsForHouse.map(m => m.id);
+              const totalAttendancesForHouse = attendances.filter(a => meetingIds.includes(a.meeting_id)).length;
+              const leader = profiles.find(p => p.id === currentHouse.leader_id);
+
+              return (
+                <div>
+                  {/* Selector de Casa de Dios & Resumen */}
+                  <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, minWidth: '280px' }}>
+                        <label className="form-label" style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                          Seleccionar Casa:
+                        </label>
+                        <select
+                          className="form-select"
+                          style={{ maxWidth: '380px' }}
+                          value={currentHouse.id}
+                          onChange={(e) => setSelectedServiceHouseId(e.target.value)}
+                        >
+                          {houseGroups.map((hg) => (
+                            <option key={hg.id} value={hg.id}>
+                              {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setServiceForm({
+                            topic: '',
+                            date: new Date().toISOString().split('T')[0],
+                            start_time: '19:00',
+                            end_time: '20:30',
+                            attendeeIds: [],
+                          });
+                          setServiceSearch('');
+                          setServiceError('');
+                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
+                        }}
+                        className="btn btn-primary"
+                      >
+                        <Plus size={16} />
+                        Nueva Enseñanza / Servicio
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                      <span className="text-secondary">📍 <strong>Municipio:</strong> {currentHouse.municipio || '—'}</span>
+                      <span className="text-secondary">🏠 <strong>Dirección:</strong> {currentHouse.address || '—'}</span>
+                      <span className="text-secondary">👤 <strong>Líder:</strong> {leader ? leader.full_name : '—'}</span>
+                      <span className="text-secondary">📖 <strong>Enseñanzas:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{meetingsForHouse.length}</strong></span>
+                      <span className="text-secondary">👥 <strong>Total Asistencias:</strong> <strong style={{ color: 'var(--gold-primary)' }}>{totalAttendancesForHouse}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Listado de Enseñanzas Realizadas */}
+                  <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
+                      Enseñanzas Realizadas ({meetingsForHouse.length})
+                    </h3>
+                  </div>
+
+                  {meetingsForHouse.length === 0 ? (
+                    <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
+                      <BookOpen size={42} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                      <h4 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>No hay enseñanzas registradas</h4>
+                      <p style={{ marginBottom: '1.5rem', fontSize: '0.9rem' }}>Aún no se han registrado servicios ni enseñanzas para {currentHouse.name}.</p>
+                      <button
+                        onClick={() => {
+                          setServiceForm({
+                            topic: '',
+                            date: new Date().toISOString().split('T')[0],
+                            start_time: '19:00',
+                            end_time: '20:30',
+                            attendeeIds: [],
+                          });
+                          setServiceSearch('');
+                          setServiceError('');
+                          setServiceModal({ open: true, houseGroupId: currentHouse.id });
+                        }}
+                        className="btn btn-primary"
+                      >
+                        <Plus size={16} />
+                        Registrar Primera Enseñanza
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Fecha</th>
+                            <th>Horario</th>
+                            <th>Tema / Enseñanza</th>
+                            <th style={{ textAlign: 'center' }}>Asistentes</th>
+                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {meetingsForHouse.map(meeting => {
+                            const attendeesForMeeting = attendances.filter(a => a.meeting_id === meeting.id);
+                            const meetingDate = new Date(meeting.date + 'T12:00:00Z');
+                            const dateString = meetingDate.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+                            const dayName = meetingDate.toLocaleDateString('es-ES', { weekday: 'short' });
+
+                            return (
+                              <tr key={meeting.id}>
+                                <td style={{ whiteSpace: 'nowrap' }} suppressHydrationWarning>
+                                  <strong>{dateString}</strong>
+                                  <span className="text-muted" style={{ fontSize: '0.75rem', display: 'block', textTransform: 'capitalize' }}>
+                                    {dayName}
+                                  </span>
+                                </td>
+                                <td className="text-secondary" style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                                  {meeting.start_time && meeting.end_time ? `${meeting.start_time} - ${meeting.end_time}` : meeting.start_time || '—'}
+                                </td>
+                                <td>
+                                  <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                                    {meeting.topic || 'Sin título'}
+                                  </strong>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span style={{
+                                    background: 'var(--bg-card-hover)',
+                                    border: '1px solid var(--border-gold)',
+                                    padding: '0.25rem 0.75rem',
+                                    borderRadius: '12px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    color: 'var(--gold-primary)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem'
+                                  }}>
+                                    <Users size={12} />
+                                    {attendeesForMeeting.length}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                                    <button
+                                      onClick={() => {
+                                        setMeetingToManage(meeting);
+                                        setMeetingSearchMember('');
+                                      }}
+                                      className="btn btn-secondary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', gap: '0.35rem' }}
+                                      title="Gestionar Asistentes (Añadir / Borrar)"
+                                    >
+                                      <Users size={14} />
+                                      Asistentes
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingMeeting(meeting);
+                                        setEditMeetingForm({
+                                          topic: meeting.topic || '',
+                                          date: meeting.date || '',
+                                          start_time: meeting.start_time || '',
+                                          end_time: meeting.end_time || '',
+                                        });
+                                        setEditMeetingError('');
+                                      }}
+                                      className="btn btn-secondary btn-icon"
+                                      style={{ width: '32px', height: '32px' }}
+                                      title="Editar Título y Fecha"
+                                    >
+                                      <Edit2 size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => setMeetingToDelete(meeting)}
+                                      className="btn btn-danger btn-icon"
+                                      style={{ width: '32px', height: '32px' }}
+                                      title="Borrar Enseñanza"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
@@ -2455,7 +2200,7 @@ export default function DashboardClient({ profile }: Props) {
                             className="text-muted"
                             style={{ fontSize: '0.8rem' }}
                           >
-                            {formatearTelefono(p.phone)}
+                            {p.phone}
                           </p>
                         )}
                         <p
@@ -2465,33 +2210,6 @@ export default function DashboardClient({ profile }: Props) {
                         >
                           Desde {formatearFecha(p.created_at)}
                         </p>
-                        {(() => {
-                          const status = getUserOnlineStatus(p.last_seen_at);
-                          return (
-                            <p
-                              style={{
-                                margin: '0.2rem 0 0',
-                                fontSize: '0.73rem',
-                                color: status.isOnline ? '#10b981' : 'var(--text-muted)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.3rem',
-                              }}
-                            >
-                              <span
-                                style={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: '50%',
-                                  backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                  boxShadow: status.isOnline ? '0 0 5px #10b981' : 'none',
-                                  display: 'inline-block',
-                                }}
-                              />
-                              {status.isOnline ? `En línea (${status.timeFormatted})` : `Desconectado (${status.timeFormatted})`}
-                            </p>
-                          );
-                        })()}
                       </div>
                     </div>
 
@@ -2531,7 +2249,6 @@ export default function DashboardClient({ profile }: Props) {
                           <option value="principal">Principal</option>
                           <option value="admin">Administrador</option>
                           <option value="user">Consolidador</option>
-                          <option value="pastor">Pastor</option>
                         </select>
                       )}
                       <button
@@ -2551,102 +2268,11 @@ export default function DashboardClient({ profile }: Props) {
                       >
                         <Edit2 size={13} />
                       </button>
-
-                      {profile.role === 'principal' && p.id !== profile.id && (
-                        deleteUserConfirm === p.id ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                            <button
-                              onClick={() => handleDeleteUser(p.id)}
-                              className="btn btn-danger btn-icon"
-                              title="Confirmar eliminación permanente"
-                              disabled={deletingUserId === p.id}
-                            >
-                              {deletingUserId === p.id ? (
-                                <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
-                              ) : (
-                                <Check size={13} />
-                              )}
-                            </button>
-                            <button
-                              onClick={() => setDeleteUserConfirm(null)}
-                              className="btn btn-secondary btn-icon"
-                              title="Cancelar"
-                              disabled={deletingUserId === p.id}
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setDeleteUserConfirm(p.id)}
-                            className="btn btn-secondary btn-icon"
-                            style={{ color: 'var(--red-primary)' }}
-                            title="Eliminar Usuario (solo Principal)"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )
-                      )}
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        )}
-        {/* ── Equipo Tab (pastor) ── */}
-        {activeTab === 'equipo' && profile.role === 'pastor' && (
-          <div className="animate-fade-in">
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
-              Equipo de Trabajo
-            </h2>
-            <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-              
-              {/* Lista de Consolidadores */}
-              <div className="card" style={{ padding: '1.5rem' }}>
-                <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
-                  Lista de Consolidadores
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {profiles.filter(p => p.role === 'user').map(p => (
-                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                      <div className="avatar-placeholder" style={{ width: 32, height: 32 }}>
-                        {p.full_name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{p.full_name}</p>
-                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{formatearTelefono(p.phone) || 'Sin teléfono'}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {profiles.filter(p => p.role === 'user').length === 0 && (
-                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay consolidadores registrados.</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Lista de Líderes */}
-              <div className="card" style={{ padding: '1.5rem' }}>
-                <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
-                  Lista de Líderes
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {houseGroups.map(hg => {
-                    const leader = profiles.find(p => p.id === hg.leader_id);
-                    return (
-                      <div key={hg.id} style={{ display: 'flex', flexDirection: 'column', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{leader ? leader.full_name : 'Sin líder asignado'}</p>
-                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{hg.name} • {hg.municipio || 'Sin municipio'}</p>
-                      </div>
-                    );
-                  })}
-                  {houseGroups.length === 0 && (
-                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay Casas de Dios registradas.</p>
-                  )}
-                </div>
-              </div>
-
-            </div>
           </div>
         )}
       </main>
@@ -2703,53 +2329,29 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="form-group" style={{ marginBottom: '1rem' }}>
-              <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
-                Estado / Condición del Miembro *
-              </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
-                {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-                {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-                {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
-                {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-                {[
-                  { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-                  { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-                  { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-                  { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                ].map((st) => {
-                  const isSel = memberForm.status === st.key;
-                  return (
-                    <button
-                      key={st.key}
-                      type="button"
-                      onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
-                      className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{
-                        padding: '0.55rem 0.5rem',
-                        fontSize: '0.82rem',
-                        fontWeight: isSel ? 600 : 400,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.35rem',
-                        borderColor: isSel ? 'var(--gold-primary)' : undefined,
-                        boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
-                        width: '100%',
-                      }}
-                    >
-                      <span>{st.icon}</span>
-                      <span>{st.label}</span>
-                    </button>
-                  );
-                })}
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Miembro</label>
+                <select
+                  className="form-select"
+                  value={memberForm.status}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({
+                      ...f,
+                      status: e.target.value as Member['status'],
+                    }))
+                  }
+                >
+                  <option>Nuevo</option>
+                  <option>Reconciliado</option>
+                  <option>Visitante</option>
+                </select>
               </div>
             </div>
 
-            <div className="grid-2">
-              <div className="form-group">
+
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Municipio</label>
                 <select
                   className="form-select"
@@ -2764,59 +2366,6 @@ export default function DashboardClient({ profile }: Props) {
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
-                  Consolidador Asignado *
-                </label>
-                <select
-                  className="form-select"
-                  value={memberForm.consolidator_id}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
-                  }
-                >
-                  <option value={profile.id}>Yo mismo ({profile.full_name})</option>
-                  {profiles
-                    .filter((p) => p.id !== profile.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                      </option>
-                    ))}
-                </select>
-                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                  El visitante se cargará en la vista del consolidador.
-                </span>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Flame size={14} style={{ color: 'var(--gold-primary)' }} />
-                  Casa de Dios
-                </label>
-                <select
-                  className="form-select"
-                  value={memberForm.house_group_id}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
-                  }
-                >
-                  <option value="">-- Sin Casa de Dios --</option>
-                  {houseGroups.map((hg) => (
-                    <option key={hg.id} value={hg.id}>
-                      {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                  Opcional: vincular a Casa de Dios.
-                </span>
-              </div>
-            </div>
 
             <div className="form-group">
               <label className="form-label">Dirección</label>
@@ -2840,9 +2389,6 @@ export default function DashboardClient({ profile }: Props) {
                 value={memberForm.phone}
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                onBlur={() =>
-                  setMemberForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
                 }
               />
             </div>
@@ -2934,9 +2480,6 @@ export default function DashboardClient({ profile }: Props) {
                 onChange={(e) =>
                   setUserForm((f) => ({ ...f, phone: e.target.value }))
                 }
-                onBlur={() =>
-                  setUserForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
-                }
               />
             </div>
 
@@ -2955,7 +2498,6 @@ export default function DashboardClient({ profile }: Props) {
                 <option value="user">Consolidador</option>
                 <option value="admin">Administrador</option>
                 <option value="principal">Principal</option>
-                <option value="pastor">Pastor (Solo lectura)</option>
               </select>
             </div>
 
@@ -3056,6 +2598,196 @@ export default function DashboardClient({ profile }: Props) {
         </Modal>
       )}
 
+      {/* ── Service Control Modal ── */}
+      {serviceModal.open && (
+        <Modal title="Control de Servicio" onClose={() => {
+          setServiceModal({ open: false });
+          setFastNewMemberOpen(false);
+        }}>
+          {fastNewMemberOpen ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <h3 style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--gold-primary)' }}>Registrar Nuevo Asistente</h3>
+              <div className="form-group">
+                <label className="form-label">Nombre Completo *</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. Juan Pérez"
+                  value={fastMemberForm.full_name}
+                  onChange={(e) => setFastMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                  autoFocus
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Teléfono (Opcional)</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. 0414-1234567"
+                  value={fastMemberForm.phone}
+                  onChange={(e) => setFastMemberForm(f => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button onClick={() => setFastNewMemberOpen(false)} className="btn btn-secondary">
+                  Atrás
+                </button>
+                <button onClick={saveFastMember} className="btn btn-primary" disabled={savingFastMember || !fastMemberForm.full_name.trim()}>
+                  {savingFastMember ? 'Guardando...' : 'Crear y Añadir'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="form-group">
+                <label className="form-label">Título de la enseñanza *</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Ej. El poder de la fe"
+                  value={serviceForm.topic}
+                  onChange={(e) => setServiceForm(f => ({ ...f, topic: e.target.value }))}
+                />
+              </div>
+              
+              <div className="grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Fecha *</label>
+                  <input
+                    className="form-input"
+                    type="date"
+                    value={serviceForm.date}
+                    onChange={(e) => setServiceForm(f => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Hora Inicio *</label>
+                  <input
+                    className="form-input"
+                    type="time"
+                    value={serviceForm.start_time}
+                    onChange={(e) => setServiceForm(f => ({ ...f, start_time: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Hora Fin *</label>
+                  <input
+                    className="form-input"
+                    type="time"
+                    value={serviceForm.end_time}
+                    onChange={(e) => setServiceForm(f => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="divider" style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.5rem 0' }} />
+              
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Registro de Asistentes</label>
+                  <button 
+                    onClick={() => {
+                      setFastMemberForm(emptyFastMember);
+                      setFastNewMemberOpen(true);
+                    }} 
+                    className="btn btn-secondary" 
+                    style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                  >
+                    + Nuevo Asistente
+                  </button>
+                </div>
+                
+                <div className="form-group">
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Buscar participante..."
+                    value={serviceSearch}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto', 
+                  border: '1px solid var(--border-subtle)', 
+                  borderRadius: 'var(--border-radius)',
+                  padding: '0.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem'
+                }}>
+                  {(() => {
+                    const houseMembers = members.filter(m => m.house_group_id === serviceModal.houseGroupId);
+                    const otherMembers = members.filter(m => m.house_group_id !== serviceModal.houseGroupId);
+                    
+                    let filtered = houseMembers.concat(otherMembers);
+                    if (serviceSearch.trim()) {
+                      const s = serviceSearch.toLowerCase();
+                      filtered = filtered.filter(m => m.full_name.toLowerCase().includes(s));
+                    }
+                    
+                    if (filtered.length === 0) {
+                      return <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>No se encontraron miembros.</p>;
+                    }
+
+                    return filtered.map(m => {
+                      const isSelected = serviceForm.attendeeIds.includes(m.id);
+                      return (
+                        <label 
+                          key={m.id} 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.75rem', 
+                            padding: '0.5rem',
+                            borderRadius: '4px',
+                            background: isSelected ? 'var(--bg-card-hover)' : 'transparent',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            onChange={(e) => {
+                              setServiceForm(prev => {
+                                const newIds = e.target.checked 
+                                  ? [...prev.attendeeIds, m.id]
+                                  : prev.attendeeIds.filter(id => id !== m.id);
+                                return { ...prev, attendeeIds: newIds };
+                              });
+                            }}
+                            style={{ width: '1.2rem', height: '1.2rem', accentColor: 'var(--gold-primary)' }}
+                          />
+                          <span style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>{m.full_name}</span>
+                          {m.house_group_id === serviceModal.houseGroupId && (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)', background: 'var(--border-gold)', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Asociado</span>
+                          )}
+                        </label>
+                      );
+                    });
+                  })()}
+                </div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Total seleccionados: <strong>{serviceForm.attendeeIds.length}</strong>
+                </div>
+              </div>
+
+              {serviceError && <p className="form-error">{serviceError}</p>}
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button onClick={() => setServiceModal({ open: false })} className="btn btn-secondary">
+                  Cancelar
+                </button>
+                <button onClick={saveServiceControl} className="btn btn-primary" disabled={savingService}>
+                  {savingService ? 'Guardando...' : 'Guardar Control'}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
       {/* ── Service History Modal ── */}
       {historyModal.open && (
         <Modal title={`Historial de Servicios - ${historyModal.houseGroupName || ''}`} onClose={() => setHistoryModal({ open: false })}>
@@ -3124,107 +2856,316 @@ export default function DashboardClient({ profile }: Props) {
         </Modal>
       )}
 
-      {/* ── Modal de Notificación de Asignación a Consolidador ── */}
-      {assignNotificationModal?.open && (
+      {/* ── Manage Meeting Attendees Modal ── */}
+      {meetingToManage && (
         <Modal
-          title="Miembro Asignado a Consolidador"
-          onClose={() => setAssignNotificationModal(null)}
+          title={`Gestionar Asistentes`}
+          onClose={() => {
+            setMeetingToManage(null);
+            setFastNewMemberOpen(false);
+          }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(0, 0, 0, 0.35))',
-              border: '1px solid var(--border-gold)',
-              borderRadius: '12px',
-              padding: '1.25rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.4rem'
-            }}>
-              <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                Se ha asignado a <strong style={{ color: 'var(--gold-primary)' }}>{assignNotificationModal.memberName}</strong> al consolidador <strong style={{ color: 'var(--text-primary)' }}>{assignNotificationModal.consolidatorName}</strong>.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxHeight: '70vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-secondary)', padding: '0.85rem 1rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-subtle)' }}>
+              <p style={{ fontWeight: 700, color: 'var(--gold-primary)', fontSize: '1rem', marginBottom: '0.2rem' }}>
+                📖 {meetingToManage.topic || 'Sin título'}
               </p>
-              <p className="text-secondary" style={{ fontSize: '0.82rem', margin: 0 }}>
-                El miembro ya está cargado en la vista personal del consolidador para su seguimiento y llamada.
+              <p className="text-secondary" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
+                📅 {new Date(meetingToManage.date + 'T12:00:00Z').toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                {meetingToManage.start_time && ` • ⏰ ${meetingToManage.start_time} ${meetingToManage.end_time ? `- ${meetingToManage.end_time}` : ''}`}
               </p>
             </div>
 
-            {(() => {
-              const formattedMemberPhone = formatearTelefono(assignNotificationModal.memberPhone);
-              const whatsappText = `Hola ${assignNotificationModal.consolidatorName}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.\n\nSe te ha asignado un nuevo miembro para consolidación y seguimiento:\n\n👤 *Nombre:* ${assignNotificationModal.memberName}\n📞 *Teléfono:* ${formattedMemberPhone || 'No registrado'}\n📍 *Municipio:* ${assignNotificationModal.memberMunicipio || 'No especificado'}\n🏷 *Estatus:* ${assignNotificationModal.status}\n\nPor favor comunícate con él/ella para darle la bienvenida y acompañarle en su proceso de fe. ¡Muchas bendiciones!`;
-              const whatsappUrl = getWhatsAppUrl(assignNotificationModal.consolidatorPhone, whatsappText);
-
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div>
-                    <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-                      Mensaje de Notificación sugerido:
-                    </label>
-                    <div style={{
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-subtle)',
-                      borderRadius: '8px',
-                      padding: '0.75rem 1rem',
-                      fontSize: '0.82rem',
-                      color: 'var(--text-secondary)',
-                      whiteSpace: 'pre-line',
-                      maxHeight: '150px',
-                      overflowY: 'auto'
-                    }}>
-                      {whatsappText}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(whatsappText);
-                        showToast('Mensaje copiado al portapapeles.');
-                      }}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '0.82rem', gap: '0.35rem' }}
-                    >
-                      <Copy size={14} />
-                      Copiar Mensaje
-                    </button>
-
-                    {whatsappUrl ? (
-                      <a
-                        href={whatsappUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn btn-primary"
-                        style={{
-                          background: '#25D366',
-                          borderColor: '#25D366',
-                          color: '#fff',
-                          fontSize: '0.82rem',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '0.4rem',
-                          textDecoration: 'none'
-                        }}
-                        onClick={() => setAssignNotificationModal(null)}
-                      >
-                        <MessageCircle size={15} />
-                        Enviar WhatsApp al Consolidador
-                      </a>
-                    ) : (
-                      <span className="text-muted" style={{ fontSize: '0.75rem' }}>
-                        (El consolidador no tiene teléfono guardado)
-                      </span>
-                    )}
-
-                    <button
-                      onClick={() => setAssignNotificationModal(null)}
-                      className="btn btn-secondary"
-                      style={{ fontSize: '0.82rem' }}
-                    >
-                      Listo
-                    </button>
-                  </div>
+            {fastNewMemberOpen ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-card-hover)', padding: '1rem', borderRadius: 'var(--border-radius)', border: '1px solid var(--border-gold)' }}>
+                <h4 style={{ fontSize: '0.95rem', color: 'var(--gold-primary)', margin: 0 }}>Registrar Asistente Rápido</h4>
+                <div className="form-group">
+                  <label className="form-label">Nombre Completo *</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Ej. Carmen Rodríguez"
+                    value={fastMemberForm.full_name}
+                    onChange={(e) => setFastMemberForm(f => ({ ...f, full_name: e.target.value }))}
+                    autoFocus
+                  />
                 </div>
-              );
-            })()}
+                <div className="form-group">
+                  <label className="form-label">Teléfono (Opcional)</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Ej. 0412-1234567"
+                    value={fastMemberForm.phone}
+                    onChange={(e) => setFastMemberForm(f => ({ ...f, phone: e.target.value }))}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setFastNewMemberOpen(false)} className="btn btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={saveFastMember} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} disabled={savingFastMember || !fastMemberForm.full_name.trim()}>
+                    {savingFastMember ? 'Guardando...' : 'Crear y Añadir'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* 1. Asistentes Actuales */}
+            <div>
+              {(() => {
+                const meetingAttendeeIds = attendances
+                  .filter(a => a.meeting_id === meetingToManage.id)
+                  .map(a => a.member_id);
+                const attendingMembers = members.filter(m => meetingAttendeeIds.includes(m.id));
+
+                return (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <label className="form-label" style={{ margin: 0 }}>
+                        Asistentes Registrados ({attendingMembers.length})
+                      </label>
+                      <button
+                        onClick={() => {
+                          setFastMemberForm(emptyFastMember);
+                          setFastNewMemberOpen(true);
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
+                      >
+                        + Asistente Rápido
+                      </button>
+                    </div>
+
+                    {attendingMembers.length === 0 ? (
+                      <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 'var(--border-radius)' }}>
+                        No hay asistentes registrados para esta enseñanza.
+                      </p>
+                    ) : (
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--border-radius)', padding: '0.5rem' }}>
+                        {attendingMembers.map(m => (
+                          <div
+                            key={m.id}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '0.4rem 0.6rem',
+                              background: 'var(--bg-card-hover)',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-subtle)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div className="avatar-placeholder" style={{ width: 28, height: 28, fontSize: '0.7rem' }}>
+                                {m.full_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{m.full_name}</span>
+                                {m.phone && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.5rem' }}>{m.phone}</span>}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => removeAttendee(meetingToManage.id, m.id)}
+                              disabled={removingAttendeeId === m.id}
+                              className="btn btn-danger btn-icon"
+                              style={{ width: '28px', height: '28px', padding: 0 }}
+                              title="Retirar de la asistencia"
+                            >
+                              {removingAttendeeId === m.id ? (
+                                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : (
+                                <X size={14} />
+                              )}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="divider" style={{ height: '1px', background: 'var(--border-subtle)' }} />
+
+            {/* 2. Añadir Más Miembros */}
+            <div>
+              <label className="form-label" style={{ marginBottom: '0.5rem' }}>
+                Añadir Más Miembros a esta Enseñanza
+              </label>
+              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                <input
+                  className="form-input"
+                  type="text"
+                  placeholder="Buscar por nombre para añadir..."
+                  value={meetingSearchMember}
+                  onChange={(e) => setMeetingSearchMember(e.target.value)}
+                />
+              </div>
+
+              {(() => {
+                const meetingAttendeeIds = attendances
+                  .filter(a => a.meeting_id === meetingToManage.id)
+                  .map(a => a.member_id);
+                const notAttendingMembers = members.filter(m => !meetingAttendeeIds.includes(m.id));
+                const filteredNotAttending = meetingSearchMember.trim()
+                  ? notAttendingMembers.filter(m => m.full_name.toLowerCase().includes(meetingSearchMember.toLowerCase()) || (m.phone ?? '').includes(meetingSearchMember))
+                  : notAttendingMembers.slice(0, 15);
+
+                if (filteredNotAttending.length === 0) {
+                  return (
+                    <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem' }}>
+                      {notAttendingMembers.length === 0 ? 'Todos los miembros registrados ya están en la asistencia.' : 'No se encontraron miembros disponibles con esa búsqueda.'}
+                    </p>
+                  );
+                }
+
+                return (
+                  <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--border-radius)', padding: '0.5rem' }}>
+                    {filteredNotAttending.map(m => (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '0.4rem 0.6rem',
+                          borderRadius: '6px',
+                          background: 'var(--bg-secondary)'
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontSize: '0.88rem', fontWeight: 500, color: 'var(--text-primary)' }}>{m.full_name}</span>
+                          {m.phone && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.5rem' }}>{m.phone}</span>}
+                        </div>
+                        <button
+                          onClick={() => addAttendee(meetingToManage.id, m.id)}
+                          disabled={addingAttendee}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', gap: '0.25rem' }}
+                        >
+                          <Plus size={12} />
+                          Añadir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => {
+                  setMeetingToManage(null);
+                  setFastNewMemberOpen(false);
+                }}
+                className="btn btn-secondary"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Delete Meeting Confirmation Modal ── */}
+      {meetingToDelete && (
+        <Modal
+          title="Eliminar Enseñanza"
+          onClose={() => setMeetingToDelete(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', lineHeight: 1.5 }}>
+              ¿Estás seguro de que deseas eliminar la enseñanza <strong>"{meetingToDelete.topic || 'Sin título'}"</strong> realizada el <strong>{formatearFechaCorta(meetingToDelete.date)}</strong>?
+            </p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              ⚠️ Esta acción eliminará permanentemente la enseñanza y todas las asistencias vinculadas a este servicio.
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setMeetingToDelete(null)} className="btn btn-secondary">
+                Cancelar
+              </button>
+              <button
+                onClick={() => deleteMeeting(meetingToDelete.id)}
+                className="btn btn-danger"
+              >
+                <Trash2 size={15} />
+                Sí, Eliminar Enseñanza
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Edit Meeting Modal ── */}
+      {editingMeeting && (
+        <Modal
+          title="Editar Enseñanza / Servicio"
+          onClose={() => setEditingMeeting(null)}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div className="form-group">
+              <label className="form-label">Título de la Enseñanza *</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Ej. El poder de la oración"
+                value={editMeetingForm.topic}
+                onChange={(e) => setEditMeetingForm(f => ({ ...f, topic: e.target.value }))}
+                autoFocus
+              />
+            </div>
+
+            <div className="grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">Fecha *</label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={editMeetingForm.date}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, date: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hora Inicio</label>
+                <input
+                  className="form-input"
+                  type="time"
+                  value={editMeetingForm.start_time}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, start_time: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hora Fin</label>
+                <input
+                  className="form-input"
+                  type="time"
+                  value={editMeetingForm.end_time}
+                  onChange={(e) => setEditMeetingForm(f => ({ ...f, end_time: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {editMeetingError && <p className="form-error">{editMeetingError}</p>}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => setEditingMeeting(null)}
+                className="btn btn-secondary"
+                disabled={savingEditMeeting}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveEditMeeting}
+                className="btn btn-primary"
+                disabled={savingEditMeeting || !editMeetingForm.topic.trim() || !editMeetingForm.date}
+              >
+                {savingEditMeeting ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}

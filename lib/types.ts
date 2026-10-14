@@ -1,4 +1,4 @@
-export type Role = 'principal' | 'admin' | 'user' | 'pastor';
+export type Role = 'principal' | 'admin' | 'user';
 
 export const MUNICIPIOS_NUEVA_ESPARTA = [
   'Antolín del Campo',
@@ -23,7 +23,6 @@ export interface Profile {
   role: Role;
   created_at: string;
   deleted_at: string | null;
-  last_seen_at?: string | null;
 }
 
 export interface Member {
@@ -34,11 +33,10 @@ export interface Member {
   municipio: string | null;
   address: string | null;
   phone: string | null;
-  status: 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado';
+  status: 'Nuevo' | 'Reconciliado' | 'Visitante';
   house_group_id: string | null;
   consolidator_id: string | null;
   consolidator_name: string;
-  is_consolidated?: boolean;
   created_at: string;
   deleted_at: string | null;
 }

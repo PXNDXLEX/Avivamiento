@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -17,11 +17,7 @@ import {
   Loader2,
   Home,
   BookOpen,
-  Flame,
-  Bell,
-  MessageCircle,
-  Search,
-  Check,
+  Flame
 } from 'lucide-react';
 
 interface Props {
@@ -68,8 +64,6 @@ export default function RegistroClient({ profile }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [consolidatingConfirmId, setConsolidatingConfirmId] = useState<string | null>(null);
   
   // Navigation & Visibility
   const [showFormModal, setShowFormModal] = useState(false);
@@ -105,25 +99,6 @@ export default function RegistroClient({ profile }: Props) {
     fetchMembers();
   }, [fetchMembers]);
 
-  async function toggleConsolidado(member: Member) {
-    const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
-    const newStatus: Member['status'] = isNowConsolidated ? 'Consolidado' : 'Nuevo';
-    try {
-      const { error: err } = await supabase
-        .from('members')
-        .update({
-          status: newStatus,
-          is_consolidated: isNowConsolidated,
-        })
-        .eq('id', member.id);
-      if (err) throw err;
-      showToast(isNowConsolidated ? `${member.full_name} marcado como Consolidado 🎉` : 'Estado restablecido a Nuevo');
-      fetchMembers();
-    } catch (err: any) {
-      showToast(err.message || 'Error al actualizar estado.', 'error');
-    }
-  }
-
   function resetForm() {
     setForm(emptyForm);
     setError('');
@@ -138,7 +113,7 @@ export default function RegistroClient({ profile }: Props) {
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: formatearTelefono(member.phone),
+      phone: member.phone ?? '',
       status: member.status,
     });
     setEditingId(member.id);
@@ -162,9 +137,8 @@ export default function RegistroClient({ profile }: Props) {
       gender: form.gender || null,
       municipio: form.municipio || null,
       address: form.address || null,
-      phone: form.phone ? formatearTelefono(form.phone) : null,
+      phone: form.phone || null,
       status: form.status,
-      is_consolidated: form.status === 'Consolidado',
       house_group_id: null,
     };
 
@@ -201,30 +175,14 @@ export default function RegistroClient({ profile }: Props) {
     Nuevo: 'badge-nuevo',
     Reconciliado: 'badge-reconciliado',
     Visitante: 'badge-visitante',
-    Consolidado: 'badge-consolidado',
   };
-
-  const filteredMembers = members.filter((m) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase().trim();
-    return (
-      m.full_name.toLowerCase().includes(q) ||
-      (m.phone ?? '').toLowerCase().includes(q) ||
-      (m.municipio ?? '').toLowerCase().includes(q) ||
-      (m.address ?? '').toLowerCase().includes(q) ||
-      m.status.toLowerCase().includes(q)
-    );
-  });
 
   const stats = {
     total: members.length,
     nuevo: members.filter((m) => m.status === 'Nuevo').length,
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
-    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
   };
-
-  const pendingConsolidation = members.filter((m) => !m.is_consolidated);
 
   const renderForm = () => (
     <form
@@ -281,48 +239,24 @@ export default function RegistroClient({ profile }: Props) {
         </div>
       </div>
 
-            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-        <label htmlFor="status" className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
-          Estado / Condición del Miembro *
-        </label>
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
-          {form.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-          {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-          {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
-          {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-          {[
-            { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-            { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-            { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-            { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-          ].map((st) => {
-            const isSel = form.status === st.key;
-            return (
-              <button
-                key={st.key}
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, status: st.key as Member['status'] }))}
-                className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
-                style={{
-                  padding: '0.55rem 0.5rem',
-                  fontSize: '0.82rem',
-                  fontWeight: isSel ? 600 : 400,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.35rem',
-                  borderColor: isSel ? 'var(--gold-primary)' : undefined,
-                  boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
-                  width: '100%',
-                }}
-              >
-                <span>{st.icon}</span>
-                <span>{st.label}</span>
-              </button>
-            );
-          })}
+      <div className="grid-2">
+        <div className="form-group">
+          <label htmlFor="status" className="form-label">Miembro</label>
+          <select
+            id="status"
+            className="form-select"
+            value={form.status}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                status: e.target.value as Member['status'],
+              }))
+            }
+          >
+            <option>Nuevo</option>
+            <option>Reconciliado</option>
+            <option>Visitante</option>
+          </select>
         </div>
       </div>
 
@@ -368,9 +302,6 @@ export default function RegistroClient({ profile }: Props) {
           value={form.phone}
           onChange={(e) =>
             setForm((f) => ({ ...f, phone: e.target.value }))
-          }
-          onBlur={() =>
-            setForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
           }
         />
       </div>
@@ -492,26 +423,10 @@ export default function RegistroClient({ profile }: Props) {
           <button 
             onClick={() => setActiveTab('list')}
             className={`btn ${activeTab === 'list' ? 'btn-primary' : 'btn-secondary'}`} 
-            style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}
+            style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Users size={18} />
-              Mis Registros
-            </div>
-            {pendingConsolidation.length > 0 && (
-              <span
-                style={{
-                  background: 'var(--gold-primary)',
-                  color: '#000',
-                  borderRadius: '12px',
-                  padding: '0.15rem 0.5rem',
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                }}
-              >
-                {pendingConsolidation.length}
-              </span>
-            )}
+            <Users size={18} />
+            Mis Registros
           </button>
         </nav>
 
@@ -566,66 +481,14 @@ export default function RegistroClient({ profile }: Props) {
               </div>
             )}
 
-            {pendingConsolidation.length > 0 && (
-              <div
-                className="card"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(0, 0, 0, 0.35))',
-                  border: '1px solid var(--border-gold)',
-                  borderRadius: '16px',
-                  padding: '1.25rem 1.5rem',
-                  marginBottom: '2rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '1rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: '50%',
-                      background: 'var(--gold-primary)',
-                      color: '#000',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Bell size={22} />
-                  </div>
-                  <div>
-                    <p style={{ fontWeight: 700, color: 'var(--gold-primary)', fontSize: '1rem', margin: 0 }}>
-                      ¡Tienes {pendingConsolidation.length} persona{pendingConsolidation.length > 1 ? 's' : ''} asignada{pendingConsolidation.length > 1 ? 's' : ''} para seguimiento!
-                    </p>
-                    <p className="text-secondary" style={{ fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
-                      El administrador te ha asignado nuevos miembros para su consolidación y llamada.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setActiveTab('list')}
-                  className="btn btn-primary"
-                  style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-                >
-                  Ver Asignaciones →
-                </button>
-              </div>
-            )}
-
             <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
               Tu Resumen de Registros
             </h2>
-            <div className="grid-5">
+            <div className="grid-2">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
               <StatCard label="Reconciliados" value={stats.reconciliado} color="var(--color-reconciliado)" />
               <StatCard label="Visitantes" value={stats.visitante} color="var(--color-visitante)" />
-              <StatCard label="Consolidados" value={stats.consolidado} color="#10b981" />
             </div>
           </div>
         )}
@@ -635,60 +498,9 @@ export default function RegistroClient({ profile }: Props) {
           <div className="animate-fade-in" style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
             {/* List Section (Expands) */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <h2 className="font-cinzel" style={{ fontSize: '1.3rem', margin: 0 }}>Mis Registros</h2>
-                <span className="badge badge-visitante">
-                  {filteredMembers.length}{filteredMembers.length !== members.length ? ` de ${members.length}` : ''} miembro{members.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-
-              {/* Buscador en tiempo real */}
-              <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
-                <Search
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: '1rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Buscar por nombre, teléfono, municipio o estatus..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={{
-                    padding: '0.65rem 2.2rem 0.65rem 2.5rem',
-                    fontSize: '0.9rem',
-                    width: '100%',
-                    borderRadius: '8px',
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-gold)',
-                  }}
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch('')}
-                    style={{
-                      position: 'absolute',
-                      right: '0.75rem',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                    title="Limpiar búsqueda"
-                  >
-                    <X size={15} />
-                  </button>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                <h2 className="font-cinzel" style={{ fontSize: '1.3rem' }}>Mis Registros</h2>
+                <span className="badge badge-visitante">{members.length} miembro{members.length !== 1 ? 's' : ''}</span>
               </div>
 
               {loading ? (
@@ -702,23 +514,9 @@ export default function RegistroClient({ profile }: Props) {
                   <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Sin registros</p>
                   <p>Aún no tienes registros en tu lista.</p>
                 </div>
-              ) : filteredMembers.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '3.5rem 2rem', color: 'var(--text-muted)' }}>
-                  <Search size={40} style={{ margin: '0 auto 1rem', opacity: 0.25 }} />
-                  <p style={{ fontSize: '1.05rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
-                    No se encontraron registros para &ldquo;{search}&rdquo;
-                  </p>
-                  <button
-                    onClick={() => setSearch('')}
-                    className="btn btn-secondary"
-                    style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}
-                  >
-                    Limpiar búsqueda
-                  </button>
-                </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-                  {filteredMembers.map((m) => (
+                  {members.map((m) => (
                     <div key={m.id} className="card" style={{ padding: '1.25rem' }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -730,51 +528,13 @@ export default function RegistroClient({ profile }: Props) {
                             <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>{formatearFecha(m.created_at)}</p>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          {m.phone && (
-                            <a
-                              href={getWhatsAppUrl(
-                                m.phone,
-                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="btn btn-secondary btn-icon"
-                              style={{ width: 32, height: 32, color: '#25D366' }}
-                              title="Contactar por WhatsApp"
-                            >
-                              <MessageCircle size={15} />
-                            </a>
-                          )}
-                          <button
-                            onClick={() => startEdit(m)}
-                            className="btn btn-secondary btn-icon"
-                            style={{ width: 32, height: 32 }}
-                            title="Editar miembro"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                        </div>
+                        <button onClick={() => startEdit(m)} className="btn btn-secondary btn-icon" style={{ width: 32, height: 32 }}>
+                          <Edit2 size={14} />
+                        </button>
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                        {m.phone && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            📞{' '}
-                            <a
-                              href={getWhatsAppUrl(
-                                m.phone,
-                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ color: 'inherit', textDecoration: 'none' }}
-                              title="Enviar WhatsApp"
-                            >
-                              {formatearTelefono(m.phone)}
-                            </a>
-                          </div>
-                        )}
+                        {m.phone && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>📞 {m.phone}</div>}
                         {(m.municipio || m.address) && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                             📍 {m.municipio ?? ''}{m.address ? (m.municipio ? ` — ${m.address}` : m.address) : ''}
@@ -783,82 +543,7 @@ export default function RegistroClient({ profile }: Props) {
                         {m.age && <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>🗓 {m.age} años</div>}
                       </div>
                       
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                        <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
-
-                        {m.is_consolidated ? (
-                          <button
-                            onClick={() => toggleConsolidado(m)}
-                            className="badge"
-                            style={{
-                              background: 'rgba(16, 185, 129, 0.15)',
-                              color: '#10b981',
-                              border: '1px solid rgba(16, 185, 129, 0.3)',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.35rem',
-                              fontSize: '0.75rem',
-                              padding: '0.3rem 0.65rem',
-                              cursor: 'pointer',
-                            }}
-                            title="Click para desmarcar consolidado si fue un error"
-                          >
-                            <CheckCircle size={13} />
-                            Consolidado ✓
-                          </button>
-                        ) : (
-                          consolidatingConfirmId === m.id ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                              <button
-                                onClick={() => {
-                                  toggleConsolidado(m);
-                                  setConsolidatingConfirmId(null);
-                                }}
-                                className="btn btn-primary"
-                                style={{
-                                  fontSize: '0.72rem',
-                                  padding: '0.28rem 0.65rem',
-                                  background: '#10b981',
-                                  borderColor: '#10b981',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.25rem',
-                                }}
-                                title="Confirmar marcar como consolidado"
-                              >
-                                <Check size={12} />
-                                ¿Confirmar?
-                              </button>
-                              <button
-                                onClick={() => setConsolidatingConfirmId(null)}
-                                className="btn btn-secondary btn-icon"
-                                style={{ width: 26, height: 26 }}
-                                title="Cancelar"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setConsolidatingConfirmId(m.id)}
-                              className="btn btn-secondary"
-                              style={{
-                                fontSize: '0.75rem',
-                                padding: '0.3rem 0.65rem',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.35rem',
-                                color: 'var(--gold-primary)',
-                                borderColor: 'var(--border-gold)',
-                              }}
-                              title="Marcar persona como consolidada"
-                            >
-                              <CheckCircle size={13} />
-                              Marcar Consolidado
-                            </button>
-                          )
-                        )}
-                      </div>
+                      <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
                     </div>
                   ))}
                 </div>
