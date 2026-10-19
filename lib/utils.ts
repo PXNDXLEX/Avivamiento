@@ -122,4 +122,44 @@ export function getWhatsAppUrl(phone?: string | null, message?: string): string 
   return `https://wa.me/${digits}${encodedMsg ? `?text=${encodedMsg}` : ''}`;
 }
 
+/**
+ * Formatea una fecha para el histórico de seguimiento (e.g. "HOY - 12 de Octubre, 2026 (10:30 AM)")
+ */
+export function formatearFechaInteraccion(fechaStr: string): string {
+  try {
+    const d = new Date(fechaStr);
+    if (isNaN(d.getTime())) return fechaStr;
+
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+
+    const timeStr = d.toLocaleTimeString('es-VE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es-VE', { month: 'long' });
+    const capitalizedMonth = month.charAt(0).toUpperCase() + month.slice(1);
+    const year = d.getFullYear();
+
+    const dateFormatted = `${day} de ${capitalizedMonth}, ${year}`;
+
+    if (isToday) {
+      return `HOY - ${dateFormatted} (${timeStr})`;
+    } else if (isYesterday) {
+      return `AYER - ${dateFormatted} (${timeStr})`;
+    } else {
+      return `${dateFormatted} (${timeStr})`;
+    }
+  } catch {
+    return fechaStr;
+  }
+}
+
 

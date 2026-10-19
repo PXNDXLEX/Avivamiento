@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
@@ -56,7 +56,9 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  ClipboardList,
 } from 'lucide-react';
+import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
 /* ─── Types & Constants ─────────────────────────────────── */
 interface Props {
@@ -349,6 +351,11 @@ export default function DashboardClient({ profile }: Props) {
     status: string;
   } | null>(null);
 
+  /* Follow-up / Seguimiento state */
+  const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
+  const [seguimientoConsolidatorFilter, setSeguimientoConsolidatorFilter] = useState<string>('all');
+  const [seguimientoStatusFilter, setSeguimientoStatusFilter] = useState<string>('all');
+
   /* User modal */
   const [userModal, setUserModal] = useState<{ open: boolean; userId?: string }>({ open: false });
   const emptyUserForm = {
@@ -552,6 +559,49 @@ export default function DashboardClient({ profile }: Props) {
 
     return matchSearch && matchStatus && matchDate;
   });
+
+  const seguimientoMembers: Member[] = useMemo(() => {
+    return members.filter((m) => {
+      const q = search.toLowerCase();
+      const matchSearch =
+        m.full_name.toLowerCase().includes(q) ||
+        (m.municipio ?? '').toLowerCase().includes(q) ||
+        (m.phone ?? '').toLowerCase().includes(q) ||
+        (m.consolidator_name || '').toLowerCase().includes(q);
+
+      if (!matchSearch) return false;
+
+      // Consolidador (rol 'user'): mostrar preferentemente los suyos
+      if (profile.role === 'user') {
+        if (seguimientoConsolidatorFilter === 'all') {
+          const hasAssigned = members.some((item) => item.consolidator_id === profile.id);
+          if (hasAssigned && m.consolidator_id !== profile.id) return false;
+        }
+      }
+
+      // Filtro por consolidador específico (para principal / admin)
+      if (seguimientoConsolidatorFilter !== 'all') {
+        if (seguimientoConsolidatorFilter === 'unassigned') {
+          if (m.consolidator_id) return false;
+        } else {
+          if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
+        }
+      }
+
+      // Filtro por estatus
+      if (seguimientoStatusFilter !== 'all') {
+        if (seguimientoStatusFilter === 'pending') {
+          if (m.is_consolidated) return false;
+        } else if (seguimientoStatusFilter === 'consolidated') {
+          if (!m.is_consolidated) return false;
+        } else {
+          if (m.status !== seguimientoStatusFilter) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [members, search, profile.role, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter]);
 
   const stats = {
     total: members.length,
@@ -1583,6 +1633,19 @@ export default function DashboardClient({ profile }: Props) {
                               <Edit2 size={13} />
                             </button>
 
+                            <button
+                              onClick={() => {
+                                setSelectedFollowUpMember(member);
+                                setActiveTab('seguimiento');
+                              }}
+                              className="btn btn-secondary btn-icon"
+                              title="Ficha de Seguimiento e Histórico"
+                              aria-label="Ficha de seguimiento"
+                              style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                            >
+                              <ClipboardList size={13} />
+                            </button>
+
                             {deleteConfirm === member.id ? (
                               <>
                                 <button
@@ -1636,130 +1699,268 @@ export default function DashboardClient({ profile }: Props) {
 
         {/* ── Seguimiento Tab ── */}
         {activeTab === 'seguimiento' && (
-          <div className="animate-fade-in">
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
-              Gestión y Seguimiento de Llamadas
-            </h2>
-            
-            {/* Buscador optimizado de ancho completo */}
-            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search
-                  size={18}
+          selectedFollowUpMember ? (
+            <MemberFollowUpSheet
+              member={selectedFollowUpMember}
+              profile={profile}
+              profiles={profiles}
+              onBack={() => setSelectedFollowUpMember(null)}
+              onMemberUpdated={fetchMembers}
+            />
+          ) : (
+            <div className="animate-fade-in">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '1.5rem',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                }}
+              >
+                <div>
+                  <h2 className="font-cinzel" style={{ fontSize: '1.3rem', margin: 0, color: 'var(--text-gold)' }}>
+                    Gestión y Seguimiento de Miembros
+                  </h2>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    Registra y consulta el histórico de llamadas, visitas presenciales y mensajes de seguimiento pastoral.
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtros de Seguimiento */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '1rem',
+                  marginBottom: '1.5rem',
+                }}
+              >
+                {/* Buscador optimizado */}
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <Search
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      left: '1rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--gold-primary)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Buscar por nombre, teléfono o municipio..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem 0.7rem 2.7rem',
+                      fontSize: '0.88rem',
+                      width: '100%',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-gold)',
+                      background: 'var(--bg-secondary)',
+                    }}
+                  />
+                </div>
+
+                {/* Filtro por consolidador (solo principal y admin) */}
+                {(profile.role === 'principal' || profile.role === 'admin') && (
+                  <select
+                    className="form-select"
+                    value={seguimientoConsolidatorFilter}
+                    onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      fontSize: '0.88rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <option value="all">Todos los consolidadores</option>
+                    <option value="unassigned">Sin asignar</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Filtro por estatus de consolidación */}
+                <select
+                  className="form-select"
+                  value={seguimientoStatusFilter}
+                  onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
                   style={{
-                    position: 'absolute',
-                    left: '1.2rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={{ 
-                    padding: '0.8rem 1rem 0.8rem 3rem', 
-                    fontSize: '1rem', 
-                    width: '100%',
+                    padding: '0.7rem 1rem',
+                    fontSize: '0.88rem',
                     borderRadius: '8px',
-                    border: '1px solid var(--border-gold)',
+                    border: '1px solid var(--border-subtle)',
                     background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
                   }}
-                />
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="pending">Pendientes de Consolidar</option>
+                  <option value="consolidated">Ya Consolidados</option>
+                  <option value="Nuevo">Nuevos</option>
+                  <option value="Reconciliado">Reconciliados</option>
+                  <option value="Visitante">Visitantes</option>
+                </select>
+              </div>
+
+              <div className="card" style={{ padding: '1.5rem' }}>
+                {seguimientoMembers.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                    <p>No se encontraron miembros con los filtros seleccionados.</p>
+                  </div>
+                ) : (
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Miembro</th>
+                          <th>Estado</th>
+                          <th>Teléfono</th>
+                          <th>Consolidador</th>
+                          <th style={{ textAlign: 'center' }}>WhatsApp</th>
+                          <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
+                          <th style={{ textAlign: 'center' }}>Histórico / Ficha</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {seguimientoMembers.map((member: Member) => (
+                          <tr key={member.id}>
+                            <td>
+                              <div
+                                onClick={() => setSelectedFollowUpMember(member)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.65rem',
+                                  cursor: 'pointer',
+                                }}
+                                title="Click para abrir Ficha de Seguimiento"
+                              >
+                                <div
+                                  className="avatar-placeholder"
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    fontSize: '0.75rem',
+                                    flexShrink: 0,
+                                    border: '1px solid var(--border-gold)',
+                                  }}
+                                >
+                                  {member.full_name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    {member.full_name}
+                                  </span>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                    {member.municipio || 'Nueva Esparta'}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`badge badge-${member.status.toLowerCase()}`}>
+                                {member.status}
+                              </span>
+                            </td>
+                            <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
+                            <td>
+                              <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
+                                {member.consolidator_name || 'Sin asignar'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                {member.phone ? (
+                                  <a
+                                    href={getWhatsAppUrl(
+                                      member.phone,
+                                      `Hola ${member.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
+                                    )}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-primary btn-icon"
+                                    style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
+                                    title="Enviar WhatsApp"
+                                  >
+                                    <MessageCircle size={14} />
+                                  </a>
+                                ) : (
+                                  <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                                {member.is_consolidated ? (
+                                  <button
+                                    onClick={() => toggleConsolidado(member)}
+                                    className="btn btn-secondary"
+                                    style={{
+                                      fontSize: '0.75rem',
+                                      padding: '0.3rem 0.6rem',
+                                      color: '#10b981',
+                                      borderColor: '#10b981',
+                                    }}
+                                  >
+                                    <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
+                                    Consolidado
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => toggleConsolidado(member)}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                                  >
+                                    Marcar Consolidado
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                <button
+                                  onClick={() => setSelectedFollowUpMember(member)}
+                                  className="btn btn-primary"
+                                  style={{
+                                    fontSize: '0.78rem',
+                                    padding: '0.35rem 0.8rem',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                  }}
+                                  title="Ver ficha de seguimiento e historial"
+                                >
+                                  <ClipboardList size={13} />
+                                  Ficha
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
-
-            <div className="card" style={{ padding: '1.5rem' }}>
-              {filteredMembers.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                  <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                  <p>No hay miembros asignados para hacer seguimiento.</p>
-                </div>
-              ) : (
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Estado</th>
-                        <th>Teléfono</th>
-                        <th>Consolidador</th>
-                        <th style={{ textAlign: 'center' }}>WhatsApp</th>
-                        <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredMembers.map((member) => (
-                        <tr key={member.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                              <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
-                                {member.full_name.charAt(0).toUpperCase()}
-                              </div>
-                              <span style={{ fontWeight: 600 }}>{member.full_name}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
-                          </td>
-                          <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
-                          <td>
-                            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                              {member.consolidator_name || 'Sin asignar'}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                              {member.phone ? (
-                                <a
-                                  href={getWhatsAppUrl(member.phone, `Hola ${member.full_name}, te escribimos de la Iglesia Avivamiento León de la Tribu de Judá`)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="btn btn-primary btn-icon"
-                                  style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
-                                  title="Enviar WhatsApp"
-                                >
-                                  <MessageCircle size={14} />
-                                </a>
-                              ) : (
-                                <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                              {member.is_consolidated ? (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: '#10b981', borderColor: '#10b981' }}
-                                >
-                                  <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
-                                  Consolidado
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
-                                >
-                                  Marcar Consolidado
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          )
         )}
 
         {/* ── Reports Tab ── */}
