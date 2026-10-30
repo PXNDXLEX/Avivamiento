@@ -22,7 +22,10 @@ import {
   MessageCircle,
   Search,
   Check,
+  Phone,
+  ClipboardList,
 } from 'lucide-react';
+import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
 interface Props {
   profile: Profile;
@@ -45,14 +48,15 @@ export default function RegistroClient({ profile }: Props) {
   const supabase = createClient();
 
   const [members, setMembers] = useState<Member[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [versiculo, setVersiculo] = useState({ texto: '', referencia: '' });
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setVersiculo(getRandomVersiculo());
-    setMounted(true);
-  }, []);
+  /* Follow-up state */
+  const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
+  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'all' | 'pending' | 'consolidated'>('mine');
+  const [seguimientoSearch, setSeguimientoSearch] = useState('');
 
   /* Form */
   const emptyForm = {
@@ -73,7 +77,7 @@ export default function RegistroClient({ profile }: Props) {
   
   // Navigation & Visibility
   const [showFormModal, setShowFormModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'list'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'list' | 'seguimiento'>('home');
 
   /* Toast */
   const [toast, setToast] = useState<{
@@ -88,22 +92,31 @@ export default function RegistroClient({ profile }: Props) {
 
 
 
-  /* Fetch own members */
+  /* Fetch members & profiles */
   const fetchMembers = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from('members')
       .select('*')
-      .eq('consolidator_id', profile.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     setMembers(data ?? []);
     setLoading(false);
-  }, [supabase, profile.id]);
+  }, [supabase]);
+
+  const fetchProfiles = useCallback(async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+    setProfiles(data ?? []);
+  }, [supabase]);
 
   useEffect(() => {
     fetchMembers();
-  }, [fetchMembers]);
+    fetchProfiles();
+  }, [fetchMembers, fetchProfiles]);
 
   async function toggleConsolidado(member: Member) {
     const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
@@ -204,7 +217,9 @@ export default function RegistroClient({ profile }: Props) {
     Consolidado: 'badge-consolidado',
   };
 
-  const filteredMembers = members.filter((m) => {
+  const myMembers = members.filter((m) => m.consolidator_id === profile.id);
+
+  const filteredMembers = myMembers.filter((m) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase().trim();
     return (
@@ -217,14 +232,34 @@ export default function RegistroClient({ profile }: Props) {
   });
 
   const stats = {
-    total: members.length,
-    nuevo: members.filter((m) => m.status === 'Nuevo').length,
-    reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
-    visitante: members.filter((m) => m.status === 'Visitante').length,
-    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    total: myMembers.length,
+    nuevo: myMembers.filter((m) => m.status === 'Nuevo').length,
+    reconciliado: myMembers.filter((m) => m.status === 'Reconciliado').length,
+    visitante: myMembers.filter((m) => m.status === 'Visitante').length,
+    consolidado: myMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
   };
 
-  const pendingConsolidation = members.filter((m) => !m.is_consolidated);
+  const pendingConsolidation = myMembers.filter((m) => !m.is_consolidated);
+
+  const seguimientoList = members.filter((m) => {
+    if (seguimientoSearch.trim()) {
+      const q = seguimientoSearch.toLowerCase().trim();
+      const match =
+        m.full_name.toLowerCase().includes(q) ||
+        (m.phone ?? '').toLowerCase().includes(q) ||
+        (m.municipio ?? '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+
+    if (seguimientoFilter === 'mine') {
+      return m.consolidator_id === profile.id;
+    } else if (seguimientoFilter === 'pending') {
+      return m.status !== 'Consolidado' && !m.is_consolidated;
+    } else if (seguimientoFilter === 'consolidated') {
+      return m.status === 'Consolidado' || m.is_consolidated;
+    }
+    return true;
+  });
 
   const renderForm = () => (
     <form
@@ -498,6 +533,31 @@ export default function RegistroClient({ profile }: Props) {
               <Users size={18} />
               Mis Registros
             </div>
+            {myMembers.length > 0 && (
+              <span
+                style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: '12px',
+                  padding: '0.15rem 0.5rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                {myMembers.length}
+              </span>
+            )}
+          </button>
+          <button 
+            onClick={() => setActiveTab('seguimiento')}
+            className={`btn ${activeTab === 'seguimiento' ? 'btn-primary' : 'btn-secondary'}`} 
+            style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Phone size={18} />
+              Seguimiento
+            </div>
             {pendingConsolidation.length > 0 && (
               <span
                 style={{
@@ -608,7 +668,7 @@ export default function RegistroClient({ profile }: Props) {
                   </div>
                 </div>
                 <button
-                  onClick={() => setActiveTab('list')}
+                  onClick={() => setActiveTab('seguimiento')}
                   className="btn btn-primary"
                   style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
                 >
@@ -747,6 +807,17 @@ export default function RegistroClient({ profile }: Props) {
                             </a>
                           )}
                           <button
+                            onClick={() => {
+                              setSelectedFollowUpMember(m);
+                              setActiveTab('seguimiento');
+                            }}
+                            className="btn btn-secondary btn-icon"
+                            style={{ width: 32, height: 32, color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                            title="Ficha de Seguimiento e Histórico"
+                          >
+                            <ClipboardList size={14} />
+                          </button>
+                          <button
                             onClick={() => startEdit(m)}
                             className="btn btn-secondary btn-icon"
                             style={{ width: 32, height: 32 }}
@@ -881,6 +952,163 @@ export default function RegistroClient({ profile }: Props) {
             </div>
           </div>
         )}
+
+        {/* ── Seguimiento Tab ── */}
+        {activeTab === 'seguimiento' && (
+          selectedFollowUpMember ? (
+            <MemberFollowUpSheet
+              member={selectedFollowUpMember}
+              profile={profile}
+              profiles={profiles}
+              onBack={() => setSelectedFollowUpMember(null)}
+              onMemberUpdated={fetchMembers}
+            />
+          ) : (
+            <div className="animate-fade-in" style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div>
+                  <h1 className="font-cinzel" style={{ fontSize: '1.5rem', margin: 0, color: 'var(--text-gold)' }}>
+                    Seguimiento y Consolidación
+                  </h1>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    Histórico de llamadas, visitas presenciales y mensajes de acompañamiento pastoral.
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      left: '1rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--gold-primary)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Buscar miembro o teléfono..."
+                    value={seguimientoSearch}
+                    onChange={(e) => setSeguimientoSearch(e.target.value)}
+                    style={{
+                      padding: '0.65rem 1rem 0.65rem 2.6rem',
+                      fontSize: '0.85rem',
+                      width: '100%',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                    }}
+                  />
+                </div>
+
+                <select
+                  className="form-select"
+                  value={seguimientoFilter}
+                  onChange={(e) => setSeguimientoFilter(e.target.value as any)}
+                  style={{
+                    padding: '0.65rem 1rem',
+                    fontSize: '0.85rem',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                  }}
+                >
+                  <option value="mine">Mis miembros asignados ({myMembers.length})</option>
+                  <option value="pending">Pendientes de consolidar</option>
+                  <option value="consolidated">Ya consolidados</option>
+                  <option value="all">Todos los miembros de la iglesia ({members.length})</option>
+                </select>
+              </div>
+
+              {/* Members cards */}
+              {seguimientoList.length === 0 ? (
+                <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
+                  <Phone size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
+                    No hay miembros en esta vista
+                  </p>
+                  <p style={{ fontSize: '0.82rem' }}>
+                    Cambia el filtro a &quot;Todos los miembros&quot; o registra uno nuevo.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                  {seguimientoList.map((m) => (
+                    <div
+                      key={m.id}
+                      className="card-glass"
+                      style={{
+                        padding: '1.25rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '1rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div
+                        onClick={() => setSelectedFollowUpMember(m)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', cursor: 'pointer', flex: 1, minWidth: '220px' }}
+                        title="Click para abrir Ficha de Seguimiento"
+                      >
+                        <div
+                          className="avatar-placeholder"
+                          style={{ width: 40, height: 40, fontSize: '0.9rem', flexShrink: 0, border: '1px solid var(--border-gold)' }}
+                        >
+                          {m.full_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                              {m.full_name}
+                            </span>
+                            <span className={`badge ${statusBadgeClass[m.status]}`} style={{ fontSize: '0.62rem' }}>
+                              {m.status}
+                            </span>
+                          </div>
+                          <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            {m.phone ? formatearTelefono(m.phone) : 'Sin teléfono'} • {m.municipio || 'Nueva Esparta'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {m.phone && (
+                          <a
+                            href={getWhatsAppUrl(
+                              m.phone,
+                              `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-secondary btn-icon"
+                            style={{ width: 34, height: 34, color: '#25D366' }}
+                            title="Contactar por WhatsApp"
+                          >
+                            <MessageCircle size={15} />
+                          </a>
+                        )}
+
+                        <button
+                          onClick={() => setSelectedFollowUpMember(m)}
+                          className="btn btn-primary"
+                          style={{ fontSize: '0.8rem', padding: '0.45rem 0.9rem', gap: '0.4rem' }}
+                        >
+                          <ClipboardList size={14} />
+                          Ficha de Seguimiento
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        )}
       </main>
 
       {/* ── Form Modal / Bottom Sheet (Mobile Only) ── */}
@@ -917,15 +1145,22 @@ export default function RegistroClient({ profile }: Props) {
           onClick={() => setActiveTab('home')}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'home' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
         >
-          <Home size={22} />
+          <Home size={20} />
           <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Inicio</span>
         </div>
         <div 
           onClick={() => setActiveTab('list')}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'list' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
         >
-          <Users size={22} />
-          <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Miembros</span>
+          <Users size={20} />
+          <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Registros</span>
+        </div>
+        <div 
+          onClick={() => setActiveTab('seguimiento')}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'seguimiento' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
+        >
+          <Phone size={20} />
+          <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Seguimiento</span>
         </div>
       </nav>
 

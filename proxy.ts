@@ -41,18 +41,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Proteger /dashboard solo para admin y principal
-  if (user && pathname.startsWith('/dashboard')) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+  // Permitir acceso a /dashboard para todos los roles autenticados (DashboardClient adapta permisos y tabs)
 
-    if (profile?.role === 'user') {
-      return NextResponse.redirect(new URL('/registro', request.url));
-    }
-  }
 
   return supabaseResponse;
 }

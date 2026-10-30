@@ -457,7 +457,6 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase]);
 
   const fetchProfiles = useCallback(async () => {
-    if (profile.role !== 'principal' && profile.role !== 'admin' && profile.role !== 'pastor') return;
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -466,7 +465,7 @@ export default function DashboardClient({ profile }: Props) {
       .order('created_at', { ascending: false });
     setProfiles(data ?? []);
     setLoadingProfiles(false);
-  }, [supabase, profile.role]);
+  }, [supabase]);
 
   const fetchCasasData = useCallback(async () => {
     try {
@@ -538,10 +537,8 @@ export default function DashboardClient({ profile }: Props) {
     fetchMembers();
     fetchCasasData();
     fetchAllFollowUps();
-    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
-      fetchProfiles();
-    }
-  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps, profile.role]);
+    fetchProfiles();
+  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   useEffect(() => {
     if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
@@ -668,21 +665,13 @@ export default function DashboardClient({ profile }: Props) {
 
       if (!matchSearch) return false;
 
-      // Consolidador (rol 'user'): mostrar preferentemente los suyos
-      if (profile.role === 'user') {
-        if (seguimientoConsolidatorFilter === 'all') {
-          const hasAssigned = members.some((item) => item.consolidator_id === profile.id);
-          if (hasAssigned && m.consolidator_id !== profile.id) return false;
-        }
-      }
-
-      // Filtro por consolidador específico (para principal / admin)
-      if (seguimientoConsolidatorFilter !== 'all') {
-        if (seguimientoConsolidatorFilter === 'unassigned') {
-          if (m.consolidator_id) return false;
-        } else {
-          if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
-        }
+      // Filtro por consolidador o asignación
+      if (seguimientoConsolidatorFilter === 'mine') {
+        if (m.consolidator_id !== profile.id) return false;
+      } else if (seguimientoConsolidatorFilter === 'unassigned') {
+        if (m.consolidator_id) return false;
+      } else if (seguimientoConsolidatorFilter !== 'all') {
+        if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
       }
 
       // Filtro por estatus
@@ -2117,30 +2106,29 @@ export default function DashboardClient({ profile }: Props) {
                   />
                 </div>
 
-                {/* Filtro por consolidador (solo principal y admin) */}
-                {(profile.role === 'principal' || profile.role === 'admin') && (
-                  <select
-                    className="form-select"
-                    value={seguimientoConsolidatorFilter}
-                    onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
-                    style={{
-                      padding: '0.7rem 1rem',
-                      fontSize: '0.88rem',
-                      borderRadius: '8px',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    <option value="all">Todos los consolidadores</option>
-                    <option value="unassigned">Sin asignar</option>
-                    {profiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                      </option>
-                    ))}
-                  </select>
-                )}
+                {/* Filtro por consolidador / asignación */}
+                <select
+                  className="form-select"
+                  value={seguimientoConsolidatorFilter}
+                  onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
+                  style={{
+                    padding: '0.7rem 1rem',
+                    fontSize: '0.88rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <option value="all">Todos los miembros</option>
+                  <option value="mine">Mis miembros asignados</option>
+                  <option value="unassigned">Sin asignar</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                    </option>
+                  ))}
+                </select>
 
                 {/* Filtro por estatus de consolidación */}
                 <select
