@@ -205,6 +205,21 @@ export default function MemberFollowUpSheet({
     fetchFollowUps();
   }, [fetchFollowUps]);
 
+  /* Bloquear scroll de la página y cerrar con tecla ESC cuando el modal esté abierto */
+  useEffect(() => {
+    if (!modalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setModalOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [modalOpen]);
+
   /* ── Guardar Nueva Interacción ── */
   async function handleSaveInteraction(e: React.FormEvent) {
     e.preventDefault();
@@ -1312,13 +1327,39 @@ export default function MemberFollowUpSheet({
       )}
 
       {/* ══════════════════════════════════════════════════════
-          MODAL: + NUEVA INTERACCIÓN DE SEGUIMIENTO
+          MODAL / VENTANA EMERGENTE: + NUEVA INTERACCIÓN
       ══════════════════════════════════════════════════════ */}
       {modalOpen && (
-        <div className="modal-overlay" onClick={() => setModalOpen(false)}>
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(0, 0, 0, 0.78)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setModalOpen(false);
+          }}
+        >
           <div
-            className="modal-content"
-            style={{ maxWidth: '580px', width: '92%', maxHeight: '90vh', overflowY: 'auto' }}
+            className="modal-content card-glass animate-bounce-in"
+            style={{
+              maxWidth: '580px',
+              width: '100%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              padding: '1.75rem',
+              border: '1px solid var(--border-gold)',
+              boxShadow: '0 12px 48px rgba(0, 0, 0, 0.8), 0 0 24px rgba(201, 168, 76, 0.25)',
+              borderRadius: '16px',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header del Modal */}
