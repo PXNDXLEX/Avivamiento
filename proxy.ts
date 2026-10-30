@@ -36,12 +36,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/login?error=proxy_no_user', request.url));
   }
 
-  // Si hay sesión y está en /login, redirigir al inicio
+  // Si hay sesión y está en /login, redirigir según su rol
   if (user && pathname.startsWith('/login')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profile?.role === 'user') {
+      return NextResponse.redirect(new URL('/registro', request.url));
+    }
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Proteger /dashboard solo para admin y principal
+  // Proteger /dashboard: el consolidador ('user') no debe ver dashboard/reportes ni datos de los demás
   if (user && pathname.startsWith('/dashboard')) {
     const { data: profile } = await supabase
       .from('profiles')
@@ -51,6 +60,19 @@ export async function proxy(request: NextRequest) {
 
     if (profile?.role === 'user') {
       return NextResponse.redirect(new URL('/registro', request.url));
+    }
+  }
+
+  // Proteger /registro: administradores, pastores y principal deben trabajar en /dashboard
+  if (user && pathname.startsWith('/registro')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profile && profile.role !== 'user') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 

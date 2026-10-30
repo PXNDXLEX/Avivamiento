@@ -72,3 +72,29 @@ export interface Attendance {
   member_id: string;
   created_at: string;
 }
+
+export type FollowUpType = 'llamada' | 'visita' | 'mensaje' | 'otro';
+
+export interface MemberFollowUp {
+  id: string;
+  member_id: string;
+  user_id: string | null;
+  user_name: string;
+  type: FollowUpType;
+  title?: string | null;
+  detail: string;
+  result_status?: string | null;
+  duration_mins?: number | null;
+  date: string;
+  created_at: string;
+}
+
+export interface SystemKeepalive {
+  id: string;
+  last_ping: string;
+  ping_count: number;
+  source: string;
+  status: string;
+  updated_at: string;
+}
+

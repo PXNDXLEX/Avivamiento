@@ -61,9 +61,141 @@ export function formatearFechaCorta(fecha: string): string {
 }
 
 /**
- * Normaliza y formatea un número telefónico para mostrarlo con prefijo nacional (0414, 0424, 0412, 0422, 0416, 0426).
- * Si el usuario introduce +58 o 58, se transforma automáticamente para mostrar el 0 inicial estándar.
+ * Prefijos móviles válidos en Venezuela según operadoras:
+ * - Movistar: 0414, 0424
+ * - Movilnet: 0416, 0426
+ * - Digitel: 0412, 0422
  */
+export const PREFIJOS_VENEZUELA = [
+  '0414',
+  '0424',
+  '0416',
+  '0426',
+  '0412',
+  '0422',
+] as const;
+
+export type PrefijoVenezuela = (typeof PREFIJOS_VENEZUELA)[number];
+
+/**
+ * Limpia la entrada para permitir únicamente números y normaliza
+ * códigos como +58 o 58, limitando a un máximo de 11 dígitos.
+ */
+export function limpiarTelefonoInput(value: string): string {
+  if (!value) return '';
+  let digits = value.replace(/\D/g, '');
+
+  if (digits.startsWith('580') && digits.length >= 12) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith('58') && digits.length >= 11) {
+    const localPart = digits.slice(2);
+    digits = localPart.startsWith('0') ? localPart : '0' + localPart;
+  } else if (digits.length === 10 && /^(414|424|416|426|412|422)/.test(digits)) {
+    digits = '0' + digits;
+  }
+
+  return digits.slice(0, 11);
+}
+
+export interface ValidacionTelefono {
+  isValid: boolean;
+  cleanPhone: string;
+  prefix: string;
+  isPrefixValid: boolean;
+  error?: string;
+}
+
+/**
+ * Valida si un número telefónico cumple con el estándar móvil venezolano:
+ * - Debe ser solo dígitos numéricos.
+ * - Debe iniciar con un prefijo válido: 0414, 0424, 0416, 0426, 0412 o 0422.
+ * - Debe tener exactamente 7 dígitos tras el prefijo (total 11 dígitos).
+ */
+export function validarTelefonoVenezolano(phone?: string | null): ValidacionTelefono {
+  if (!phone || !phone.trim()) {
+    return {
+      isValid: true,
+      cleanPhone: '',
+      prefix: '',
+      isPrefixValid: true,
+    };
+  }
+
+  const trimmed = phone.trim();
+
+  // Verificar si contiene letras u otros caracteres no permitidos
+  if (/[^\d\s\-\+\(\)]/.test(trimmed)) {
+    return {
+      isValid: false,
+      cleanPhone: trimmed.replace(/\D/g, ''),
+      prefix: '',
+      isPrefixValid: false,
+      error: 'El teléfono debe contener únicamente números.',
+    };
+  }
+
+  let digits = trimmed.replace(/\D/g, '');
+
+  if (digits.startsWith('580') && digits.length >= 12) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith('58') && digits.length >= 11) {
+    const localPart = digits.slice(2);
+    digits = localPart.startsWith('0') ? localPart : '0' + localPart;
+  } else if (digits.length === 10 && /^(414|424|416|426|412|422)/.test(digits)) {
+    digits = '0' + digits;
+  }
+
+  const prefix = digits.slice(0, 4);
+  const isPrefixValid = (PREFIJOS_VENEZUELA as readonly string[]).includes(prefix as any);
+
+  if (digits.length < 4) {
+    return {
+      isValid: false,
+      cleanPhone: digits,
+      prefix,
+      isPrefixValid: false,
+      error: 'Debe ingresar un prefijo venezolano válido (0414, 0424, 0416, 0426, 0412 o 0422).',
+    };
+  }
+
+  if (!isPrefixValid) {
+    return {
+      isValid: false,
+      cleanPhone: digits,
+      prefix,
+      isPrefixValid: false,
+      error: `Prefijo "${prefix}" no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.`,
+    };
+  }
+
+  if (digits.length < 11) {
+    return {
+      isValid: false,
+      cleanPhone: digits,
+      prefix,
+      isPrefixValid: true,
+      error: `Faltan dígitos. El número debe tener 11 dígitos (${prefix} seguido de 7 dígitos). Actualmente tiene ${digits.length}.`,
+    };
+  }
+
+  if (digits.length > 11) {
+    return {
+      isValid: false,
+      cleanPhone: digits,
+      prefix,
+      isPrefixValid: true,
+      error: `El número excede los 11 dígitos requeridos (${prefix} seguido de 7 dígitos).`,
+    };
+  }
+
+  return {
+    isValid: true,
+    cleanPhone: digits,
+    prefix,
+    isPrefixValid: true,
+  };
+}
+
 export function formatearTelefono(phone?: string | null): string {
   if (!phone) return '';
   const trimmed = phone.trim();
@@ -87,9 +219,9 @@ export function formatearTelefono(phone?: string | null): string {
     return '0' + digits;
   }
 
-  // Si ya tiene 11 dígitos y empieza por 0 (ej. 04148007840)
+  // Si ya tiene 11 dígitos y empieza por 0 (ej. 04148007840) -> 0414-8007840
   if (digits.length === 11 && digits.startsWith('0')) {
-    return digits;
+    return `${digits.slice(0, 4)}-${digits.slice(4)}`;
   }
 
   return trimmed;
@@ -120,6 +252,46 @@ export function getWhatsAppUrl(phone?: string | null, message?: string): string 
 
   const encodedMsg = message ? encodeURIComponent(message) : '';
   return `https://wa.me/${digits}${encodedMsg ? `?text=${encodedMsg}` : ''}`;
+}
+
+/**
+ * Formatea una fecha para el histórico de seguimiento (e.g. "HOY - 12 de Octubre, 2026 (10:30 AM)")
+ */
+export function formatearFechaInteraccion(fechaStr: string): string {
+  try {
+    const d = new Date(fechaStr);
+    if (isNaN(d.getTime())) return fechaStr;
+
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+
+    const timeStr = d.toLocaleTimeString('es-VE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es-VE', { month: 'long' });
+    const capitalizedMonth = month.charAt(0).toUpperCase() + month.slice(1);
+    const year = d.getFullYear();
+
+    const dateFormatted = `${day} de ${capitalizedMonth}, ${year}`;
+
+    if (isToday) {
+      return `HOY - ${dateFormatted} (${timeStr})`;
+    } else if (isYesterday) {
+      return `AYER - ${dateFormatted} (${timeStr})`;
+    } else {
+      return `${dateFormatted} (${timeStr})`;
+    }
+  } catch {
+    return fechaStr;
+  }
 }
 
 

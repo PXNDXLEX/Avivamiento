@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
-import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
+import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -56,7 +56,12 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  ClipboardList,
+  FileText,
+  TrendingUp,
+  Clock,
 } from 'lucide-react';
+import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
 /* ─── Types & Constants ─────────────────────────────────── */
 interface Props {
@@ -83,6 +88,36 @@ const CASA_COLORS = [
   '#6366f1', // Indigo
 ];
 
+const FOLLOW_UP_TYPE_CONFIG: Record<
+  FollowUpType,
+  { label: string; icon: any; color: string; bg: string }
+> = {
+  llamada: {
+    label: 'Llamada',
+    icon: Phone,
+    color: '#3b82f6',
+    bg: 'rgba(59, 130, 246, 0.15)',
+  },
+  visita: {
+    label: 'Visita',
+    icon: Home,
+    color: '#10b981',
+    bg: 'rgba(16, 185, 129, 0.15)',
+  },
+  mensaje: {
+    label: 'WhatsApp',
+    icon: MessageCircle,
+    color: '#25D366',
+    bg: 'rgba(37, 211, 102, 0.15)',
+  },
+  otro: {
+    label: 'Nota / Otro',
+    icon: FileText,
+    color: '#8b5cf6',
+    bg: 'rgba(139, 92, 246, 0.15)',
+  },
+};
+
 const ROLE_LABELS: Record<Role, string> = {
   principal: 'Principal',
   admin: 'Administrador',
@@ -90,7 +125,7 @@ const ROLE_LABELS: Record<Role, string> = {
   pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
+type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'users' | 'equipo';
 
 const TWENTY_MINUTES_MS = 20 * 60 * 1000;
 
@@ -197,10 +232,19 @@ function StatCard({
 function Toast({
   msg,
   type,
+  onClose,
 }: {
   msg: string;
   type: 'success' | 'error';
+  onClose?: () => void;
 }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose?.();
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [onClose, msg]);
+
   return (
     <div
       role="alert"
@@ -211,10 +255,17 @@ function Toast({
         right: '1.5rem',
         zIndex: 9999,
         animation: 'slide-in-right 0.3s ease',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.6rem',
       }}
+      onClick={onClose}
+      title="Click para cerrar"
     >
       {type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-      {msg}
+      <span>{msg}</span>
+      <X size={14} style={{ marginLeft: '0.4rem', opacity: 0.7 }} />
     </div>
   );
 }
@@ -233,13 +284,14 @@ function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 300,
-        background: 'rgba(0,0,0,0.75)',
-        backdropFilter: 'blur(6px)',
+        zIndex: 9999,
+        background: 'rgba(0,0,0,0.78)',
+        backdropFilter: 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1rem',
+        animation: 'fade-in 0.2s ease',
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -251,6 +303,9 @@ function Modal({
           padding: '1.75rem',
           maxHeight: '90vh',
           overflowY: 'auto',
+          borderRadius: '16px',
+          border: '1px solid var(--border-gold)',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.75)',
         }}
       >
         <div
@@ -259,15 +314,19 @@ function Modal({
             justifyContent: 'space-between',
             alignItems: 'center',
             marginBottom: '1.5rem',
+            paddingBottom: '0.75rem',
+            borderBottom: '1px solid var(--border-subtle)',
           }}
         >
-          <h2 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
+          <h2 className="font-cinzel" style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-gold)' }}>
             {title}
           </h2>
           <button
             onClick={onClose}
             className="btn btn-secondary btn-icon"
             aria-label="Cerrar"
+            style={{ width: 34, height: 34, borderRadius: '8px' }}
+            title="Cerrar ventana"
           >
             <X size={16} />
           </button>
@@ -285,14 +344,12 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
-  const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
-  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
-  const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
+  const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
 
-  /* Asignar Miembros state */
-  const [assignSearch, setAssignSearch] = useState('');
-  const [assignSelectedCasa, setAssignSelectedCasa] = useState('');
-  const [assigningMember, setAssigningMember] = useState<string | null>(null);
+  /* Follow-ups state for report */
+  const [allFollowUps, setAllFollowUps] = useState<MemberFollowUp[]>([]);
+  const [loadingFollowUps, setLoadingFollowUps] = useState(false);
+  const [reportFollowUpTypeFilter, setReportFollowUpTypeFilter] = useState<string>('all');
 
   /* Date Filter */
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
@@ -314,10 +371,17 @@ export default function DashboardClient({ profile }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  /* Casas de Dios y Asistencias */
-  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
-  const [attendances, setAttendances] = useState<Attendance[]>([]);
-  const [houseGroupMeetings, setHouseGroupMeetings] = useState<HouseGroupMeeting[]>([]);
+  /* Casa de Dios única */
+  const [singleCasa, setSingleCasa] = useState<HouseGroup | null>(null);
+  const [singleCasaModal, setSingleCasaModal] = useState(false);
+  const [singleCasaForm, setSingleCasaForm] = useState({
+    name: '',
+    address: '',
+    municipio: '',
+  });
+  const [savingSingleCasa, setSavingSingleCasa] = useState(false);
+  const [singleCasaError, setSingleCasaError] = useState('');
+  const houseGroups = useMemo(() => (singleCasa ? [singleCasa] : []), [singleCasa]);
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
@@ -349,6 +413,11 @@ export default function DashboardClient({ profile }: Props) {
     status: string;
   } | null>(null);
 
+  /* Follow-up / Seguimiento state */
+  const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
+  const [seguimientoConsolidatorFilter, setSeguimientoConsolidatorFilter] = useState<string>('all');
+  const [seguimientoStatusFilter, setSeguimientoStatusFilter] = useState<string>('all');
+
   /* User modal */
   const [userModal, setUserModal] = useState<{ open: boolean; userId?: string }>({ open: false });
   const emptyUserForm = {
@@ -368,26 +437,6 @@ export default function DashboardClient({ profile }: Props) {
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  /* Casa modal */
-  const [casaModal, setCasaModal] = useState<{
-    open: boolean;
-    casa?: HouseGroup;
-  }>({ open: false });
-  const emptyCasaForm = {
-    name: '',
-    address: '',
-    municipio: '',
-    leader_id: '',
-  };
-  const [casaForm, setCasaForm] = useState(emptyCasaForm);
-  const [savingCasa, setSavingCasa] = useState(false);
-  const [casaError, setCasaError] = useState('');
-
-  /* Service History Modal */
-  const [historyModal, setHistoryModal] = useState<{ open: boolean; houseGroupId?: string; houseGroupName?: string }>({ open: false });
-
-  const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
-
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -402,17 +451,29 @@ export default function DashboardClient({ profile }: Props) {
   /* ── Data fetching ── */
   const fetchMembers = useCallback(async () => {
     setLoadingMembers(true);
-    const { data } = await supabase
+    let query = supabase
       .from('members')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
+
+    // Si es consolidador, solo consultar sus registros propios
+    if (profile.role === 'user') {
+      query = query.eq('consolidator_id', profile.id);
+    }
+
+    const { data } = await query;
     setMembers(data ?? []);
     setLoadingMembers(false);
-  }, [supabase]);
+  }, [supabase, profile.id, profile.role]);
 
   const fetchProfiles = useCallback(async () => {
-    if (profile.role !== 'principal' && profile.role !== 'admin' && profile.role !== 'pastor') return;
+    // Si es consolidador, no ver usuarios ni perfiles ajenos
+    if (profile.role === 'user') {
+      setProfiles([profile]);
+      setLoadingProfiles(false);
+      return;
+    }
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -421,35 +482,141 @@ export default function DashboardClient({ profile }: Props) {
       .order('created_at', { ascending: false });
     setProfiles(data ?? []);
     setLoadingProfiles(false);
-  }, [supabase, profile.role]);
+  }, [supabase, profile]);
 
   const fetchCasasData = useCallback(async () => {
     try {
-      const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
-        supabase.from('house_groups').select('*'),
-        supabase.from('attendances').select('*'),
-        supabase.from('house_group_meetings').select('*')
-      ]);
-      setHouseGroups(hgData ?? []);
-      setAttendances(attData ?? []);
-      setHouseGroupMeetings(meetData ?? []);
-    } catch (e) {
-      // Ignorar de forma silenciosa si las tablas no existen todavía
+      const { data, error } = await supabase
+        .from('house_groups')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (!error && data && data.length > 0) {
+        const primary = data[0];
+        setSingleCasa(primary);
+        setSingleCasaForm({
+          name: primary.name || '',
+          address: primary.address || '',
+          municipio: primary.municipio || '',
+        });
+
+        // Limpiar cualquier casa duplicada previa y reasignar sus miembros a la casa única
+        if (data.length > 1 && (profile.role === 'principal' || profile.role === 'admin')) {
+          const extraIds = data.slice(1).map((c) => c.id);
+          await supabase.from('members').update({ house_group_id: primary.id }).in('house_group_id', extraIds);
+          await supabase.from('house_group_meetings').delete().in('house_group_id', extraIds);
+          await supabase.from('house_groups').delete().in('id', extraIds);
+        }
+
+        // Asignar todos los miembros que aún no tengan casa vinculada a la Casa de Dios única
+        if (profile.role === 'principal' || profile.role === 'admin') {
+          await supabase.from('members').update({ house_group_id: primary.id }).is('house_group_id', null);
+        }
+      } else if (profile.role === 'principal' || profile.role === 'admin') {
+        const { data: created, error: createErr } = await supabase
+          .from('house_groups')
+          .insert({
+            name: 'Avivamiento León de la Tribu de Judá',
+            address: 'Sede Principal',
+            municipio: 'García',
+          })
+          .select('*')
+          .single();
+        if (!createErr && created) {
+          setSingleCasa(created);
+          setSingleCasaForm({
+            name: created.name || '',
+            address: created.address || '',
+            municipio: created.municipio || '',
+          });
+          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
+        }
+      }
+    } catch {
+      // Ignorar errores silenciosamente
     }
-  }, [supabase]);
+  }, [supabase, profile.role]);
+
+  const fetchAllFollowUps = useCallback(async () => {
+    // El consolidador no ve seguimientos generales
+    if (profile.role === 'user') return;
+    setLoadingFollowUps(true);
+    let loadedRecords: MemberFollowUp[] = [];
+    try {
+      const { data, error } = await supabase
+        .from('member_follow_ups')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        loadedRecords = data;
+      }
+    } catch {
+      // Ignorar si la tabla no está creada aún o falla la conexión
+    }
+
+    // Merge con datos guardados localmente (avivamiento_followups_*)
+    if (typeof window !== 'undefined') {
+      try {
+        const localRecords: MemberFollowUp[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('avivamiento_followups_')) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                localRecords.push(...parsed);
+              }
+            }
+          }
+        }
+        if (localRecords.length > 0) {
+          const map = new Map<string, MemberFollowUp>();
+          loadedRecords.forEach((r) => map.set(r.id, r));
+          localRecords.forEach((r) => {
+            if (!map.has(r.id)) map.set(r.id, r);
+          });
+          loadedRecords = Array.from(map.values()).sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        }
+      } catch {
+        // Ignorar errores de localStorage
+      }
+    }
+
+    setAllFollowUps(loadedRecords);
+    setLoadingFollowUps(false);
+  }, [supabase, profile.role]);
 
   useEffect(() => {
     fetchMembers();
-    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
-      fetchProfiles();
-      fetchCasasData();
-    }
-  }, [fetchMembers, fetchProfiles, fetchCasasData, profile.role]);
+    fetchCasasData();
+    fetchAllFollowUps();
+    fetchProfiles();
+    // Auto-ping de fondo silencioso en navegador si hace más de 6 horas
+    try {
+      const lastPingTime = localStorage.getItem('last_keepalive_ping_client');
+      const now = Date.now();
+      if (!lastPingTime || now - Number(lastPingTime) > 6 * 60 * 60 * 1000) {
+        localStorage.setItem('last_keepalive_ping_client', String(now));
+        fetch('/api/keepalive?source=browser_heartbeat').catch(() => {});
+      }
+    } catch {}
+  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
-    if (activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
-  }, [activeTab, fetchProfiles, fetchCasasData]);
+    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'reports') {
+      fetchProfiles();
+    }
+    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports') {
+      fetchCasasData();
+    }
+    if (activeTab === 'reports' || activeTab === 'seguimiento') {
+      fetchAllFollowUps();
+    }
+  }, [activeTab, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
   const lastActivityRecordedRef = useRef<number>(0);
@@ -522,6 +689,11 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
+    // Si el rol es consolidador, NUNCA ver miembros ajenos
+    if (profile.role === 'user' && m.consolidator_id !== profile.id) {
+      return false;
+    }
+
     const q = search.toLowerCase();
     const matchSearch =
       m.full_name.toLowerCase().includes(q) ||
@@ -552,6 +724,46 @@ export default function DashboardClient({ profile }: Props) {
 
     return matchSearch && matchStatus && matchDate;
   });
+
+  const seguimientoMembers: Member[] = useMemo(() => {
+    return members.filter((m) => {
+      // Si el rol es consolidador, NUNCA ver miembros ajenos
+      if (profile.role === 'user' && m.consolidator_id !== profile.id) {
+        return false;
+      }
+
+      const q = search.toLowerCase();
+      const matchSearch =
+        m.full_name.toLowerCase().includes(q) ||
+        (m.municipio ?? '').toLowerCase().includes(q) ||
+        (m.phone ?? '').toLowerCase().includes(q) ||
+        (m.consolidator_name || '').toLowerCase().includes(q);
+
+      if (!matchSearch) return false;
+
+      // Filtro por consolidador o asignación
+      if (seguimientoConsolidatorFilter === 'mine') {
+        if (m.consolidator_id !== profile.id) return false;
+      } else if (seguimientoConsolidatorFilter === 'unassigned') {
+        if (m.consolidator_id) return false;
+      } else if (seguimientoConsolidatorFilter !== 'all') {
+        if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
+      }
+
+      // Filtro por estatus
+      if (seguimientoStatusFilter !== 'all') {
+        if (seguimientoStatusFilter === 'pending') {
+          if (m.is_consolidated) return false;
+        } else if (seguimientoStatusFilter === 'consolidated') {
+          if (!m.is_consolidated) return false;
+        } else {
+          if (m.status !== seguimientoStatusFilter) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [members, search, profile.role, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter]);
 
   const stats = {
     total: members.length,
@@ -616,63 +828,146 @@ export default function DashboardClient({ profile }: Props) {
     return { name: item.name, 'Nuevos': item.value, 'Total': cumulative };
   });
 
-  /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
-  const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
 
-  const filteredMeetings = houseGroupMeetings.filter(meeting => {
-    if (dateFilter === 'all') return true;
-    const meetingDate = new Date(meeting.date + 'T12:00:00Z');
-    const now = new Date();
-    if (dateFilter === 'today') {
-      return meetingDate.toDateString() === now.toDateString();
-    } else if (dateFilter === 'week') {
-      const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
-      const startOfWeek = new Date(new Date().setDate(diff));
-      startOfWeek.setHours(0, 0, 0, 0);
-      return meetingDate >= startOfWeek;
-    } else if (dateFilter === 'month') {
-      return meetingDate.getMonth() === now.getMonth() && meetingDate.getFullYear() === now.getFullYear();
-    } else if (dateFilter === 'year') {
-      return meetingDate.getFullYear() === now.getFullYear();
-    }
-    return true;
-  });
-
-  filteredMeetings.forEach((meeting) => {
-    const dateKey = meeting.date;
-    const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
-    if (!attendanceByDateAndHouse[dateKey]) {
-      attendanceByDateAndHouse[dateKey] = {};
-    }
-    attendanceByDateAndHouse[dateKey][meeting.house_group_id] =
-      (attendanceByDateAndHouse[dateKey][meeting.house_group_id] || 0) + attendeesCount;
-  });
-
-  const sortedMeetingDates = Object.keys(attendanceByDateAndHouse).sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime()
-  );
-
-  const casasTimelineData = sortedMeetingDates.map((dateKey) => {
-    const point: Record<string, any> = {
-      fecha: formatearFechaCorta(dateKey),
-      rawDate: dateKey,
-    };
-    houseGroups.forEach((hg) => {
-      point[hg.name] = attendanceByDateAndHouse[dateKey][hg.id] ?? 0;
+  /* ── Seguimiento General Data Calculations ── */
+  const filteredFollowUps = useMemo(() => {
+    return allFollowUps.filter((item) => {
+      if (dateFilter === 'all') return true;
+      const itemDate = new Date(item.date);
+      const now = new Date();
+      if (dateFilter === 'today') {
+        return itemDate.toDateString() === now.toDateString();
+      } else if (dateFilter === 'week') {
+        const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+        const startOfWeek = new Date(new Date().setDate(diff));
+        startOfWeek.setHours(0, 0, 0, 0);
+        return itemDate >= startOfWeek;
+      } else if (dateFilter === 'month') {
+        return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+      } else if (dateFilter === 'year') {
+        return itemDate.getFullYear() === now.getFullYear();
+      }
+      return true;
     });
-    return point;
-  });
+  }, [allFollowUps, dateFilter]);
 
-  const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
+  const followUpMetrics = useMemo(() => {
+    const total = filteredFollowUps.length;
+    const llamadas = filteredFollowUps.filter((f) => f.type === 'llamada').length;
+    const visitas = filteredFollowUps.filter((f) => f.type === 'visita').length;
+    const mensajes = filteredFollowUps.filter((f) => f.type === 'mensaje').length;
+    const otros = filteredFollowUps.filter((f) => f.type === 'otro').length;
+
+    const contactedMemberIds = new Set(filteredFollowUps.map((f) => f.member_id));
+    const totalMembers = members.length;
+    const cobertura = totalMembers > 0 ? Math.round((contactedMemberIds.size / totalMembers) * 100) : 0;
+    const consolidados = members.filter((m) => m.status === 'Consolidado').length;
+    const efectividad = totalMembers > 0 ? Math.round((consolidados / totalMembers) * 100) : 0;
+
+    return {
+      total,
+      llamadas,
+      visitas,
+      mensajes,
+      otros,
+      contactedCount: contactedMemberIds.size,
+      totalMembers,
+      cobertura,
+      consolidados,
+      efectividad,
+    };
+  }, [filteredFollowUps, members]);
+
+  const followUpTypeChartData = useMemo(() => {
+    return [
+      { name: 'Llamadas Telefónicas', value: followUpMetrics.llamadas, color: '#3b82f6' },
+      { name: 'Visitas Presenciales', value: followUpMetrics.visitas, color: '#10b981' },
+      { name: 'Mensajes WhatsApp', value: followUpMetrics.mensajes, color: '#25D366' },
+      { name: 'Otros / Notas', value: followUpMetrics.otros, color: '#8b5cf6' },
+    ];
+  }, [followUpMetrics]);
+
+  const consolidatorPerformanceData = useMemo(() => {
+    return profiles
+      .map((p) => {
+        const userFollowUps = filteredFollowUps.filter(
+          (f) =>
+            f.user_id === p.id ||
+            (f.user_name &&
+              (f.user_name.toLowerCase() === p.full_name?.toLowerCase() ||
+                f.user_name.toLowerCase() === p.username?.toLowerCase()))
+        );
+        const llamadas = userFollowUps.filter((f) => f.type === 'llamada').length;
+        const visitas = userFollowUps.filter((f) => f.type === 'visita').length;
+        const mensajes = userFollowUps.filter((f) => f.type === 'mensaje').length;
+        const total = userFollowUps.length;
+
+        const assignedMembers = members.filter((m) => m.consolidator_id === p.id);
+        const assignedCount = assignedMembers.length;
+        const consolidatedCount = assignedMembers.filter((m) => m.status === 'Consolidado').length;
+        const conversionRate = assignedCount > 0 ? Math.round((consolidatedCount / assignedCount) * 100) : 0;
+
+        return {
+          id: p.id,
+          fullName: p.full_name,
+          shortName: p.full_name.split(' ')[0],
+          username: p.username,
+          role: p.role,
+          lastSeenAt: p.last_seen_at,
+          llamadas,
+          Llamadas: llamadas,
+          visitas,
+          Visitas: visitas,
+          mensajes,
+          Mensajes: mensajes,
+          total,
+          Total: total,
+          assignedCount,
+          consolidatedCount,
+          conversionRate,
+        };
+      })
+      .sort((a, b) => b.total - a.total || b.assignedCount - a.assignedCount);
+  }, [profiles, filteredFollowUps, members]);
+
+  const followUpTimelineData = useMemo(() => {
+    const grouped: Record<
+      string,
+      { date: string; displayDate: string; Llamadas: number; Visitas: number; Mensajes: number; Total: number }
+    > = {};
+
+    const sorted = [...filteredFollowUps].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    sorted.forEach((item) => {
+      const dateKey = item.date.slice(0, 10);
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = {
+          date: dateKey,
+          displayDate: formatearFechaCorta(dateKey),
+          Llamadas: 0,
+          Visitas: 0,
+          Mensajes: 0,
+          Total: 0,
+        };
+      }
+      if (item.type === 'llamada') grouped[dateKey].Llamadas += 1;
+      else if (item.type === 'visita') grouped[dateKey].Visitas += 1;
+      else if (item.type === 'mensaje') grouped[dateKey].Mensajes += 1;
+      grouped[dateKey].Total += 1;
+    });
+
+    return Object.values(grouped);
+  }, [filteredFollowUps]);
 
   /* ── Member CRUD ── */
   function openAddMember() {
     if (profiles.length === 0) fetchProfiles();
-    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       ...emptyMemberForm,
       consolidator_id: profile.id,
-      house_group_id: '',
+      house_group_id: singleCasa?.id || '',
     });
     setMemberError('');
     setMemberModal({ open: true });
@@ -680,17 +975,16 @@ export default function DashboardClient({ profile }: Props) {
 
   function openEditMember(member: Member) {
     if (profiles.length === 0) fetchProfiles();
-    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: formatearTelefono(member.phone),
+      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
-      house_group_id: member.house_group_id || '',
+      house_group_id: member.house_group_id || singleCasa?.id || '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -701,8 +995,21 @@ export default function DashboardClient({ profile }: Props) {
       setMemberError('El nombre completo es requerido.');
       return;
     }
+
+    if (memberForm.phone && memberForm.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(memberForm.phone);
+      if (!phoneVal.isValid) {
+        setMemberError(phoneVal.error || 'Número de teléfono inválido.');
+        return;
+      }
+    }
+
     setSavingMember(true);
     setMemberError('');
+
+    const cleanMemberPhone = memberForm.phone && memberForm.phone.trim()
+      ? validarTelefonoVenezolano(memberForm.phone).cleanPhone
+      : null;
 
     const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
 
@@ -712,10 +1019,10 @@ export default function DashboardClient({ profile }: Props) {
       gender: memberForm.gender || null,
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
-      phone: memberForm.phone ? formatearTelefono(memberForm.phone) : null,
+      phone: cleanMemberPhone,
       status: memberForm.status,
       is_consolidated: memberForm.status === 'Consolidado',
-      house_group_id: memberForm.house_group_id || null,
+      house_group_id: singleCasa?.id || memberModal.member?.house_group_id || null,
       consolidator_id: chosenConsolidator.id,
       consolidator_name: chosenConsolidator.full_name,
     };
@@ -802,18 +1109,29 @@ export default function DashboardClient({ profile }: Props) {
       setUserError('Usuario y nombre son requeridos para editar.');
       return;
     }
+    if (userForm.phone && userForm.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(userForm.phone);
+      if (!phoneVal.isValid) {
+        setUserError(phoneVal.error || 'Número de teléfono inválido.');
+        return;
+      }
+    }
     setSavingUser(true);
     setUserError('');
+    const cleanUserPhone = userForm.phone && userForm.phone.trim()
+      ? validarTelefonoVenezolano(userForm.phone).cleanPhone
+      : '';
+    const userPayload = { ...userForm, phone: cleanUserPhone };
     try {
       if (userModal.userId) {
-        const result = await adminUpdateUser(userModal.userId, userForm);
+        const result = await adminUpdateUser(userModal.userId, userPayload);
         if (result && 'error' in result) {
           setUserError(result.error);
           return;
         }
         showToast('Usuario actualizado exitosamente.');
       } else {
-        const result = await adminCreateUser(userForm);
+        const result = await adminCreateUser(userPayload);
         if (result && 'error' in result) {
           setUserError(result.error);
           return;
@@ -869,65 +1187,64 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
-  /* ── Casas management ── */
-  async function saveCasa() {
-    if (!casaForm.name.trim()) {
-      setCasaError('El nombre es requerido.');
+  /* ── Casa de Dios única (Gestión exclusiva de Administrador / Principal) ── */
+  async function handleSaveSingleCasa() {
+    if (!singleCasaForm.name.trim()) {
+      setSingleCasaError('El nombre de la Casa de Dios es obligatorio.');
       return;
     }
-    setSavingCasa(true);
-    setCasaError('');
+    setSavingSingleCasa(true);
+    setSingleCasaError('');
 
     const payload = {
-      name: casaForm.name.trim(),
-      address: casaForm.address || null,
-      municipio: casaForm.municipio || null,
-      leader_id: casaForm.leader_id || null,
+      name: singleCasaForm.name.trim(),
+      address: singleCasaForm.address.trim() || null,
+      municipio: singleCasaForm.municipio || null,
     };
 
     try {
-      if (casaModal.casa) {
+      if (singleCasa?.id) {
         const { error } = await supabase
           .from('house_groups')
           .update(payload)
-          .eq('id', casaModal.casa.id);
+          .eq('id', singleCasa.id);
         if (error) throw error;
-        showToast('Casa de Dios actualizada.');
+        setSingleCasa((prev) => (prev ? { ...prev, ...payload } : null));
       } else {
-        const { error } = await supabase.from('house_groups').insert(payload);
+        const { data: created, error } = await supabase
+          .from('house_groups')
+          .insert(payload)
+          .select('*')
+          .single();
         if (error) throw error;
-        showToast('Casa de Dios registrada.');
+        if (created) {
+          setSingleCasa(created);
+          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
+        }
       }
-      setCasaModal({ open: false });
-      fetchCasasData();
+      showToast('Casa de Dios actualizada exitosamente.');
+      setSingleCasaModal(false);
+      fetchMembers();
     } catch (err: unknown) {
-      setCasaError(err instanceof Error ? err.message : 'Error al guardar.');
+      setSingleCasaError(err instanceof Error ? err.message : 'Error al guardar Casa de Dios.');
     } finally {
-      setSavingCasa(false);
+      setSavingSingleCasa(false);
     }
-  }
-
-  async function confirmDeleteCasa(id: string) {
-    const { error } = await supabase.from('house_groups').delete().eq('id', id);
-    if (error) {
-      showToast('Error al eliminar (puede tener asistencias asociadas).', 'error');
-    } else {
-      showToast('Casa de Dios eliminada.');
-      fetchCasasData();
-    }
-    setDeleteCasaConfirm(null);
   }
 
   /* ── Tabs config ── */
   const tabs = profile.role === 'pastor' ? [
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
-  ] : [
+  ] : profile.role === 'user' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
+  ] : [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
+    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
@@ -939,13 +1256,32 @@ export default function DashboardClient({ profile }: Props) {
       : []),
   ];
 
+  /* Guardia para rol user: no permitir pestañas no autorizadas */
+  useEffect(() => {
+    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'users' || activeTab === 'equipo')) {
+      setActiveTab('home');
+    }
+  }, [profile.role, activeTab]);
+
+  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear la ficha abierta para regresar siempre al menú principal de seguimiento */
+  useEffect(() => {
+    if (activeTab !== 'seguimiento') {
+      setSelectedFollowUpMember(null);
+    }
+  }, [activeTab]);
+
+  const handleTabClick = (tabKey: ActiveTab) => {
+    setSelectedFollowUpMember(null);
+    setActiveTab(tabKey);
+  };
+
   /* ══════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════ */
   return (
     <div className="app-layout">
       {/* Toast */}
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* ── Sidebar (Desktop) ── */}
       <aside className="sidebar hide-on-mobile" style={{ padding: '2rem 1.5rem' }}>
@@ -960,21 +1296,71 @@ export default function DashboardClient({ profile }: Props) {
         </div>
 
         <div style={{ marginBottom: '2rem' }}>
-          <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.75rem' }}>Mi Perfil</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', margin: 0 }}>Mi Perfil</p>
+            {(profile.role === 'principal' || profile.role === 'admin') && (
+              <button
+                onClick={() => {
+                  setSingleCasaError('');
+                  setSingleCasaModal(true);
+                }}
+                className="btn-icon"
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  background: 'rgba(212, 175, 55, 0.12)',
+                  border: '1px solid var(--border-gold)',
+                  borderRadius: '6px',
+                  color: 'var(--gold-primary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                title="Configuración de Casa de Dios (Nombre y Dirección)"
+              >
+                <Edit2 size={12} />
+              </button>
+            )}
+          </div>
+          <div
+            onClick={() => {
+              if (profile.role === 'principal' || profile.role === 'admin') {
+                setSingleCasaError('');
+                setSingleCasaModal(true);
+              }
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default',
+              padding: '0.4rem',
+              borderRadius: '8px',
+              transition: 'background 0.2s',
+            }}
+            title={(profile.role === 'principal' || profile.role === 'admin') ? 'Click para editar Casa de Dios' : ''}
+          >
             <div className="avatar-placeholder" style={{ width: 40, height: 40, fontSize: '1rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
-            <div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{profile.full_name}</p>
-              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>{profile.full_name}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
+                {singleCasa && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--gold-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    🏠 {singleCasa.name}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)} className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`} style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}>
+            <button key={t.key} onClick={() => handleTabClick(t.key)} className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`} style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}>
               {t.icon}
               {t.label}
             </button>
@@ -993,13 +1379,26 @@ export default function DashboardClient({ profile }: Props) {
       <main className="main-content">
         {/* Mobile Header (Hidden on Desktop) */}
         <div className="hide-on-desktop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div
+            onClick={() => {
+              if (profile.role === 'principal' || profile.role === 'admin') {
+                setSingleCasaError('');
+                setSingleCasaModal(true);
+              }
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default' }}
+          >
             <div className="avatar-placeholder" style={{ width: 36, height: 36, fontSize: '0.9rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>{profile.full_name}</p>
-              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>{profile.full_name}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
+                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
+                {(profile.role === 'principal' || profile.role === 'admin') && (
+                  <span style={{ fontSize: '0.65rem', color: 'var(--gold-primary)' }}>✏️ Casa de Dios</span>
+                )}
+              </div>
             </div>
           </div>
           <form action={signOut}>
@@ -1060,7 +1459,17 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             )}
 
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Resumen de Registros</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0 }}>Resumen de Registros</h2>
+              <button
+                onClick={openAddMember}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                <Plus size={16} />
+                <span>Nuevo Miembro</span>
+              </button>
+            </div>
             <div className="grid-5" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
@@ -1180,7 +1589,7 @@ export default function DashboardClient({ profile }: Props) {
                   style={{ whiteSpace: 'nowrap' }}
                 >
                   <Plus size={16} />
-                  Agregar Miembro
+                  Nuevo Miembro
                 </button>
               </div>
             </div>
@@ -1445,8 +1854,7 @@ export default function DashboardClient({ profile }: Props) {
                         </td>
                         <td style={{ minWidth: '180px' }}>
                           {profile.role === 'principal' || profile.role === 'admin' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                               <select
                                 className="form-select"
                                 style={{
@@ -1498,14 +1906,11 @@ export default function DashboardClient({ profile }: Props) {
                                     {member.consolidator_name || 'Consolidador previo'}
                                   </option>
                                 )}
-                                {profiles.map((p) => {
-                                  const status = getUserOnlineStatus(p.last_seen_at);
-                                  return (
-                                    <option key={p.id} value={p.id}>
-                                      {status.isOnline ? '🟢' : '⚪'} {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                                    </option>
-                                  );
-                                })}
+                                {profiles.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                                  </option>
+                                ))}
                               </select>
                               {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
                                 const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
@@ -1524,36 +1929,6 @@ export default function DashboardClient({ profile }: Props) {
                                   </a>
                                 );
                               })()}
-                            </div>
-                            {member.consolidator_id && (() => {
-                              const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
-                              if (!currentConsolidator) return null;
-                              const status = getUserOnlineStatus(currentConsolidator.last_seen_at);
-                              return (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.3rem',
-                                    marginTop: '0.2rem',
-                                    fontSize: '0.72rem',
-                                    color: status.isOnline ? '#10b981' : 'var(--text-muted)',
-                                  }}
-                                  title={status.label + ' - ' + status.timeFormatted}
-                                >
-                                  <span
-                                    style={{
-                                      width: 6,
-                                      height: 6,
-                                      borderRadius: '50%',
-                                      backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                      boxShadow: status.isOnline ? '0 0 4px #10b981' : 'none',
-                                    }}
-                                  />
-                                  <span>{status.isOnline ? 'En línea' : status.timeFormatted}</span>
-                                </div>
-                              );
-                            })()}
                             </div>
                           ) : (
                             <span className="text-secondary">{member.consolidator_name}</span>
@@ -1581,6 +1956,19 @@ export default function DashboardClient({ profile }: Props) {
                               aria-label="Editar miembro"
                             >
                               <Edit2 size={13} />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setSelectedFollowUpMember(member);
+                                setActiveTab('seguimiento');
+                              }}
+                              className="btn btn-secondary btn-icon"
+                              title="Ficha de Seguimiento e Histórico"
+                              aria-label="Ficha de seguimiento"
+                              style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                            >
+                              <ClipboardList size={13} />
                             </button>
 
                             {deleteConfirm === member.id ? (
@@ -1636,130 +2024,273 @@ export default function DashboardClient({ profile }: Props) {
 
         {/* ── Seguimiento Tab ── */}
         {activeTab === 'seguimiento' && (
-          <div className="animate-fade-in">
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>
-              Gestión y Seguimiento de Llamadas
-            </h2>
-            
-            {/* Buscador optimizado de ancho completo */}
-            <div style={{ marginBottom: '1.5rem', width: '100%' }}>
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search
-                  size={18}
+          selectedFollowUpMember ? (
+            <MemberFollowUpSheet
+              key={`followup-sheet-${selectedFollowUpMember.id}`}
+              member={selectedFollowUpMember}
+              profile={profile}
+              profiles={profiles}
+              onBack={() => setSelectedFollowUpMember(null)}
+              onMemberUpdated={() => {
+                fetchMembers();
+                fetchAllFollowUps();
+              }}
+            />
+          ) : (
+            <div key="dashboard-followup-list-main" className="animate-fade-in">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '1.5rem',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                }}
+              >
+                <div>
+                  <h2 className="font-cinzel" style={{ fontSize: '1.3rem', margin: 0, color: 'var(--text-gold)' }}>
+                    Gestión y Seguimiento de Miembros
+                  </h2>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                    Registra y consulta el histórico de llamadas, visitas presenciales y mensajes de seguimiento pastoral.
+                  </p>
+                </div>
+              </div>
+
+              {/* Filtros de Seguimiento */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '1rem',
+                  marginBottom: '1.5rem',
+                }}
+              >
+                {/* Buscador optimizado */}
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <Search
+                    size={16}
+                    style={{
+                      position: 'absolute',
+                      left: '1rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'var(--gold-primary)',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Buscar por nombre, teléfono o municipio..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem 0.7rem 2.7rem',
+                      fontSize: '0.88rem',
+                      width: '100%',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-gold)',
+                      background: 'var(--bg-secondary)',
+                    }}
+                  />
+                </div>
+
+                {/* Filtro por consolidador / asignación (solo admin, pastor y principal) */}
+                {profile.role !== 'user' && (
+                  <select
+                    className="form-select"
+                    value={seguimientoConsolidatorFilter}
+                    onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      fontSize: '0.88rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <option value="all">Todos los miembros</option>
+                    <option value="mine">Mis miembros asignados</option>
+                    <option value="unassigned">Sin asignar</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Filtro por estatus de consolidación */}
+                <select
+                  className="form-select"
+                  value={seguimientoStatusFilter}
+                  onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
                   style={{
-                    position: 'absolute',
-                    left: '1.2rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={{ 
-                    padding: '0.8rem 1rem 0.8rem 3rem', 
-                    fontSize: '1rem', 
-                    width: '100%',
+                    padding: '0.7rem 1rem',
+                    fontSize: '0.88rem',
                     borderRadius: '8px',
-                    border: '1px solid var(--border-gold)',
+                    border: '1px solid var(--border-subtle)',
                     background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
                   }}
-                />
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="pending">Pendientes de Consolidar</option>
+                  <option value="consolidated">Ya Consolidados</option>
+                  <option value="Nuevo">Nuevos</option>
+                  <option value="Reconciliado">Reconciliados</option>
+                  <option value="Visitante">Visitantes</option>
+                </select>
+              </div>
+
+              <div className="card" style={{ padding: '1.5rem' }}>
+                {seguimientoMembers.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                    <p>No se encontraron miembros con los filtros seleccionados.</p>
+                  </div>
+                ) : (
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Miembro</th>
+                          <th>Estado</th>
+                          <th>Teléfono</th>
+                          <th>Consolidador</th>
+                          <th style={{ textAlign: 'center' }}>WhatsApp</th>
+                          <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
+                          <th style={{ textAlign: 'center' }}>Histórico / Ficha</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {seguimientoMembers.map((member: Member) => (
+                          <tr key={member.id}>
+                            <td>
+                              <div
+                                onClick={() => setSelectedFollowUpMember(member)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.65rem',
+                                  cursor: 'pointer',
+                                }}
+                                title="Click para abrir Ficha de Seguimiento"
+                              >
+                                <div
+                                  className="avatar-placeholder"
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    fontSize: '0.75rem',
+                                    flexShrink: 0,
+                                    border: '1px solid var(--border-gold)',
+                                  }}
+                                >
+                                  {member.full_name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    {member.full_name}
+                                  </span>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                    {member.municipio || 'Nueva Esparta'}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`badge badge-${member.status.toLowerCase()}`}>
+                                {member.status}
+                              </span>
+                            </td>
+                            <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
+                            <td>
+                              <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
+                                {member.consolidator_name || 'Sin asignar'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                {member.phone ? (
+                                  <a
+                                    href={getWhatsAppUrl(
+                                      member.phone,
+                                      `Hola ${member.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
+                                    )}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-primary btn-icon"
+                                    style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
+                                    title="Enviar WhatsApp"
+                                  >
+                                    <MessageCircle size={14} />
+                                  </a>
+                                ) : (
+                                  <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+                                {member.is_consolidated ? (
+                                  <button
+                                    onClick={() => toggleConsolidado(member)}
+                                    className="btn btn-secondary"
+                                    style={{
+                                      fontSize: '0.75rem',
+                                      padding: '0.3rem 0.6rem',
+                                      color: '#10b981',
+                                      borderColor: '#10b981',
+                                    }}
+                                  >
+                                    <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
+                                    Consolidado
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => toggleConsolidado(member)}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
+                                  >
+                                    Marcar Consolidado
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                <button
+                                  onClick={() => setSelectedFollowUpMember(member)}
+                                  className="btn btn-primary"
+                                  style={{
+                                    fontSize: '0.78rem',
+                                    padding: '0.35rem 0.8rem',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                  }}
+                                  title="Ver ficha de seguimiento e historial"
+                                >
+                                  <ClipboardList size={13} />
+                                  Ficha
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
-
-            <div className="card" style={{ padding: '1.5rem' }}>
-              {filteredMembers.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                  <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                  <p>No hay miembros asignados para hacer seguimiento.</p>
-                </div>
-              ) : (
-                <div className="table-wrapper">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Nombre</th>
-                        <th>Estado</th>
-                        <th>Teléfono</th>
-                        <th>Consolidador</th>
-                        <th style={{ textAlign: 'center' }}>WhatsApp</th>
-                        <th style={{ textAlign: 'center' }}>Estatus Consolidación</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredMembers.map((member) => (
-                        <tr key={member.id}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                              <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
-                                {member.full_name.charAt(0).toUpperCase()}
-                              </div>
-                              <span style={{ fontWeight: 600 }}>{member.full_name}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
-                          </td>
-                          <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
-                          <td>
-                            <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
-                              {member.consolidator_name || 'Sin asignar'}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center' }}>
-                              {member.phone ? (
-                                <a
-                                  href={getWhatsAppUrl(member.phone, `Hola ${member.full_name}, te escribimos de la Iglesia Avivamiento León de la Tribu de Judá`)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="btn btn-primary btn-icon"
-                                  style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
-                                  title="Enviar WhatsApp"
-                                >
-                                  <MessageCircle size={14} />
-                                </a>
-                              ) : (
-                                <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                              {member.is_consolidated ? (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem', color: '#10b981', borderColor: '#10b981' }}
-                                >
-                                  <CheckCircle size={14} style={{ marginRight: '0.3rem' }} />
-                                  Consolidado
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => toggleConsolidado(member)}
-                                  className="btn btn-secondary"
-                                  style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
-                                >
-                                  Marcar Consolidado
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
+          )
         )}
 
         {/* ── Reports Tab ── */}
@@ -1775,11 +2306,11 @@ export default function DashboardClient({ profile }: Props) {
                 Reportes Generales
               </button>
               <button
-                onClick={() => setReportsTab('casas')}
-                className={`btn ${reportsTab === 'casas' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setReportsTab('seguimiento')}
+                className={`btn ${reportsTab === 'seguimiento' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
-                Casas de Dios
+                Seguimiento General
               </button>
             </div>
 
@@ -1943,133 +2474,493 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
             ) : (
-              <div
-                className="animate-fade-in"
-                style={{
-                  display: 'grid',
-                  gap: '1.5rem',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-                }}
-              >
-                {/* Metricas Casas */}
-                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
-                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+              /* ── RESUMEN DE SEGUIMIENTO GENERAL ── */
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                {/* Encabezado descriptivo */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 className="font-cinzel" style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-gold)' }}>
+                      Resumen de Seguimiento Pastoral y Consolidación
+                    </h2>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                      Métricas ejecutivas de llamadas, visitas presenciales y mensajes de seguimiento registrados por el equipo.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <Calendar size={14} style={{ color: 'var(--gold-primary)' }} />
+                    <span>Filtro activo: <strong>{dateFilter === 'all' ? 'Histórico Completo' : dateFilter === 'today' ? 'Hoy' : dateFilter === 'week' ? 'Esta Semana' : dateFilter === 'month' ? 'Este Mes' : 'Este Año'}</strong></span>
+                  </div>
                 </div>
 
-                {/* Attendance Chart - Por Casa y Fecha con Leyenda */}
-                <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                    <div>
-                      <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>
-                        Asistencia por Casa de Dios y Fecha
-                      </h3>
-                      <p className="text-muted" style={{ fontSize: '0.8rem' }}>
-                        Historial comparativo de participantes por servicio realizado
-                      </p>
-                    </div>
-                    {casasTimelineData.length > 0 && (
-                      <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                        <button
-                          onClick={() => setCasasChartType('bar')}
-                          className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                        >
-                          Barras
-                        </button>
-                        <button
-                          onClick={() => setCasasChartType('line')}
-                          className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                        >
-                          Líneas
-                        </button>
+                {/* KPI Metrics Grid (6 tarjetas) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                  <StatCard
+                    label="Total Interacciones"
+                    value={followUpMetrics.total}
+                    icon="📋"
+                    color="var(--gold-primary)"
+                  />
+                  <StatCard
+                    label="Llamadas"
+                    value={followUpMetrics.llamadas}
+                    icon="📞"
+                    color="#3b82f6"
+                  />
+                  <StatCard
+                    label="Visitas Presenciales"
+                    value={followUpMetrics.visitas}
+                    icon="🏠"
+                    color="#10b981"
+                  />
+                  <StatCard
+                    label="Mensajes WhatsApp"
+                    value={followUpMetrics.mensajes}
+                    icon="💬"
+                    color="#25D366"
+                  />
+                  <StatCard
+                    label="Miembros Atendidos"
+                    value={followUpMetrics.contactedCount}
+                    icon="👥"
+                    color="#06b6d4"
+                  />
+                  <StatCard
+                    label="Consolidados"
+                    value={followUpMetrics.consolidados}
+                    icon="🛡️"
+                    color="#f59e0b"
+                  />
+                </div>
+
+                {/* Gráficas Principales: Distribución por Canal & Actividad por Consolidador */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.5rem' }}>
+                  {/* Gráfica Donut: Distribución de Contactos */}
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '0.3rem' }}>
+                      Distribución por Tipo de Interacción
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Canales utilizados para el contacto pastoral
+                    </p>
+
+                    {followUpMetrics.total === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                        <Phone size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>Sin interacciones en este período</p>
+                        <p style={{ fontSize: '0.82rem' }}>Registra llamadas o visitas desde la pestaña de Seguimiento.</p>
                       </div>
+                    ) : (
+                      <>
+                        <div style={{ position: 'relative' }}>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <PieChart>
+                              <Pie
+                                data={followUpTypeChartData.filter(d => d.value > 0)}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={95}
+                                paddingAngle={4}
+                                dataKey="value"
+                                isAnimationActive={true}
+                              >
+                                {followUpTypeChartData.filter(d => d.value > 0).map((entry, i) => (
+                                  <Cell key={i} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{
+                                  background: '#1a1a2e',
+                                  border: '1px solid #c9a84c',
+                                  borderRadius: '8px',
+                                  color: '#f0e6c8',
+                                  fontSize: '0.82rem',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                }}
+                                itemStyle={{ color: '#f0e6c8' }}
+                                labelStyle={{ color: '#c9a84c', fontWeight: 600 }}
+                                formatter={(value: number, name: string) => [
+                                  `${value} (${followUpMetrics.total > 0 ? Math.round((value / followUpMetrics.total) * 100) : 0}%)`,
+                                  name
+                                ]}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Leyenda 2x2 */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', marginTop: '1rem' }}>
+                          {followUpTypeChartData.map((entry) => {
+                            const pct = followUpMetrics.total > 0 ? Math.round((entry.value / followUpMetrics.total) * 100) : 0;
+                            return (
+                              <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: entry.color, flexShrink: 0, display: 'inline-block' }} />
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {entry.name}: <strong style={{ color: 'var(--text-primary)' }}>{entry.value}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({pct}%)</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
 
-                  {houseGroups.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '4rem 0' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                  {/* Gráfica de Barras: Rendimiento por Consolidador */}
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '0.3rem' }}>
+                      Actividad por Consolidador
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Comparativa de interacciones realizadas por cada líder
+                    </p>
+
+                    {consolidatorPerformanceData.filter(c => c.total > 0).length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                        <Users size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>Sin actividad de consolidación</p>
+                        <p style={{ fontSize: '0.82rem' }}>Aún no hay llamadas o visitas registradas por el equipo.</p>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={consolidatorPerformanceData.filter(c => c.total > 0).slice(0, 7)}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="shortName" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.82rem',
+                            }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+                          <Bar dataKey="Llamadas" stackId="a" fill="#3b82f6" />
+                          <Bar dataKey="Visitas" stackId="a" fill="#10b981" />
+                          <Bar dataKey="Mensajes" stackId="a" fill="#25D366" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gráfica de Tendencia / Evolución en el Tiempo */}
+                {followUpTimelineData.length > 1 && (
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <h3 className="font-cinzel" style={{ fontSize: '0.95rem', margin: 0 }}>
+                          Evolución del Seguimiento en el Tiempo
+                        </h3>
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                          Volumen diario de interacciones pastorales
+                        </p>
+                      </div>
                     </div>
-                  ) : casasTimelineData.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                        Sin registros de servicios con fecha aún
+                    <ResponsiveContainer width="100%" height={240}>
+                      <AreaChart data={followUpTimelineData}>
+                        <defs>
+                          <linearGradient id="colorFollowUpTotal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--gold-primary)" stopOpacity={0.7} />
+                            <stop offset="95%" stopColor="var(--gold-primary)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                        <XAxis dataKey="displayDate" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.82rem',
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '0.78rem' }} />
+                        <Area type="monotone" dataKey="Total" stroke="var(--gold-primary)" fillOpacity={1} fill="url(#colorFollowUpTotal)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="Visitas" stroke="#10b981" fillOpacity={0} strokeWidth={2} />
+                        <Area type="monotone" dataKey="Llamadas" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Tabla: Rendimiento del Equipo de Consolidación */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0 }}>
+                        Rendimiento del Equipo de Consolidación
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        Detalle de miembros asignados, contactos realizados y tasa de consolidación por líder
                       </p>
-                      <p style={{ fontSize: '0.85rem' }}>
-                        No hay registros de actividades o servicios registrados para este período.
+                    </div>
+                  </div>
+
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Consolidador</th>
+                          <th style={{ textAlign: 'center' }}>Asignados</th>
+                          <th style={{ textAlign: 'center' }}>📞 Llamadas</th>
+                          <th style={{ textAlign: 'center' }}>🏠 Visitas</th>
+                          <th style={{ textAlign: 'center' }}>💬 Mensajes</th>
+                          <th style={{ textAlign: 'center' }}>Total Acciones</th>
+                          <th style={{ textAlign: 'center' }}>Consolidados</th>
+                          <th style={{ textAlign: 'center' }}>Efectividad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {consolidatorPerformanceData.map((item) => {
+                          const onlineStatus = getUserOnlineStatus(item.lastSeenAt);
+                          return (
+                            <tr key={item.id}>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                  <div
+                                    className="avatar-placeholder"
+                                    style={{
+                                      width: 32,
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {item.fullName.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>
+                                        {item.fullName}
+                                      </span>
+                                      {item.id === profile.id && (
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)' }}>(Tú)</span>
+                                      )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.1rem' }}>
+                                      <span className={`badge badge-${item.role}`} style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem' }}>
+                                        {ROLE_LABELS[item.role]}
+                                      </span>
+                                      <span style={{ fontSize: '0.7rem', color: onlineStatus.isOnline ? '#10b981' : 'var(--text-muted)' }}>
+                                        {onlineStatus.isOnline ? '● En línea' : '○ Desconectado'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ textAlign: 'center', fontWeight: 600 }}>
+                                {item.assignedCount}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#3b82f6', fontWeight: 600 }}>
+                                {item.llamadas}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600 }}>
+                                {item.visitas}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#25D366', fontWeight: 600 }}>
+                                {item.mensajes}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  background: item.total > 0 ? 'rgba(201, 168, 76, 0.15)' : 'var(--bg-secondary)',
+                                  color: item.total > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
+                                  padding: '0.2rem 0.6rem',
+                                  borderRadius: '12px',
+                                  fontWeight: 700,
+                                  fontSize: '0.82rem',
+                                  border: item.total > 0 ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
+                                }}>
+                                  {item.total}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'center', fontWeight: 600, color: '#f59e0b' }}>
+                                {item.consolidatedCount}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    color: item.conversionRate >= 50 ? '#10b981' : item.conversionRate > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
+                                  }}>
+                                    {item.conversionRate}%
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Tabla: Bitácora de Últimas Interacciones de Seguimiento */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0 }}>
+                        Registro Reciente de Interacciones
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        Histórico auditado de contactos realizados a miembros de la iglesia
+                      </p>
+                    </div>
+
+                    {/* Filtros rápidos de tipo */}
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('all')}
+                        className={`btn ${reportFollowUpTypeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('llamada')}
+                        className={`btn ${reportFollowUpTypeFilter === 'llamada' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        📞 Llamadas
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('visita')}
+                        className={`btn ${reportFollowUpTypeFilter === 'visita' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        🏠 Visitas
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('mensaje')}
+                        className={`btn ${reportFollowUpTypeFilter === 'mensaje' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        💬 WhatsApp
+                      </button>
+                    </div>
+                  </div>
+
+                  {filteredFollowUps.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
+                      <Phone size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
+                        No hay interacciones registradas para este período
+                      </p>
+                      <p style={{ fontSize: '0.82rem' }}>
+                        Las llamadas, visitas y mensajes registrados en Seguimiento se reflejarán aquí.
                       </p>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height={320}>
-                      {casasChartType === 'bar' ? (
-                        <BarChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Bar
-                              key={hg.id}
-                              dataKey={hg.name}
-                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
-                              radius={[4, 4, 0, 0]}
-                            />
-                          ))}
-                        </BarChart>
-                      ) : (
-                        <LineChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Line
-                              key={hg.id}
-                              type="monotone"
-                              dataKey={hg.name}
-                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
-                              strokeWidth={2.5}
-                              dot={{ r: 4 }}
-                              activeDot={{ r: 6 }}
-                            />
-                          ))}
-                        </LineChart>
-                      )}
-                    </ResponsiveContainer>
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Fecha</th>
+                            <th>Miembro</th>
+                            <th>Consolidador</th>
+                            <th>Tipo</th>
+                            <th>Detalle / Resultado</th>
+                            <th style={{ textAlign: 'center' }}>Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredFollowUps
+                            .filter(f => reportFollowUpTypeFilter === 'all' || f.type === reportFollowUpTypeFilter)
+                            .slice(0, 15)
+                            .map((item) => {
+                              const targetMember = members.find(m => m.id === item.member_id);
+                              const typeCfg = FOLLOW_UP_TYPE_CONFIG[item.type] || FOLLOW_UP_TYPE_CONFIG.otro;
+                              const IconComponent = typeCfg.icon;
+
+                              return (
+                                <tr key={item.id}>
+                                  <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                    {formatearFechaInteraccion(item.date)}
+                                  </td>
+                                  <td>
+                                    {targetMember ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div
+                                          className="avatar-placeholder"
+                                          style={{ width: 28, height: 28, fontSize: '0.7rem', flexShrink: 0 }}
+                                        >
+                                          {targetMember.full_name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.85rem' }}>
+                                            {targetMember.full_name}
+                                          </p>
+                                          <span className={`badge badge-${targetMember.status.toLowerCase()}`} style={{ fontSize: '0.6rem' }}>
+                                            {targetMember.status}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Miembro registrado</span>
+                                    )}
+                                  </td>
+                                  <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                    {item.user_name || 'Consolidador'}
+                                  </td>
+                                  <td>
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        padding: '0.2rem 0.6rem',
+                                        borderRadius: '12px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        backgroundColor: typeCfg.bg,
+                                        color: typeCfg.color,
+                                        border: `1px solid ${typeCfg.color}40`,
+                                      }}
+                                    >
+                                      <IconComponent size={12} />
+                                      {typeCfg.label}
+                                    </span>
+                                  </td>
+                                  <td style={{ maxWidth: '320px' }}>
+                                    {item.result_status && (
+                                      <p style={{ margin: '0 0 0.2rem', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                                        {item.result_status}
+                                      </p>
+                                    )}
+                                    <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {item.detail || 'Sin notas adicionales.'}
+                                    </p>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    {targetMember && (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedFollowUpMember(targetMember);
+                                          setActiveTab('seguimiento');
+                                        }}
+                                        className="btn btn-secondary btn-icon"
+                                        title="Ver historial completo del miembro"
+                                        aria-label="Ver historial"
+                                        style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
+                                      >
+                                        <ClipboardList size={13} />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2077,303 +2968,6 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
-        {/* ── Casas Tab ── */}
-        {activeTab === 'casas' && (
-          <div className="animate-fade-in">
-            {/* Sub-tabs */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
-              <button
-                onClick={() => setCasasSubTab('gestionar')}
-                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
-              >
-                Gestionar Casas
-              </button>
-              <button
-                onClick={() => setCasasSubTab('asignar')}
-                className={`btn ${casasSubTab === 'asignar' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
-              >
-                Asignar Miembros
-              </button>
-            </div>
-
-            {/* ── Sub-tab: Gestionar Casas ── */}
-            {casasSubTab === 'gestionar' && (
-              <div>
-                {profile.role !== 'user' && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                    <button
-                      onClick={() => {
-                        setCasaForm(emptyCasaForm);
-                        setCasaError('');
-                        setCasaModal({ open: true });
-                      }}
-                      className="btn btn-primary"
-                    >
-                      <Plus size={16} />
-                      Nueva Casa de Dios
-                    </button>
-                  </div>
-                )}
-
-                {(() => {
-                  const visibleHouseGroups = profile.role === 'user'
-                    ? houseGroups.filter(hg => hg.leader_id === profile.id)
-                    : houseGroups;
-                  
-                  if (visibleHouseGroups.length === 0) {
-                    return (
-                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
-                        <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                        <p>No hay Casas de Dios registradas.</p>
-                      </div>
-                    );
-                  }
-                  
-                  return (
-                    <div className="table-wrapper">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Nombre</th>
-                            <th>Municipio</th>
-                            <th>Dirección</th>
-                            <th>Líder Asignado</th>
-                            <th>Registrada</th>
-                            <th style={{ textAlign: 'center' }}>Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleHouseGroups.map((casa) => {
-                            const leader = profiles.find((p) => p.id === casa.leader_id);
-                          return (
-                            <tr key={casa.id}>
-                              <td><strong>{casa.name}</strong></td>
-                              <td className="text-secondary">{casa.municipio || '—'}</td>
-                              <td className="text-secondary">{casa.address || '—'}</td>
-                              <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
-                              <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
-                                {formatearFecha(casa.created_at)}
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                  <button
-                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
-                                    className="btn btn-secondary btn-icon"
-                                    title="Historial de Servicios"
-                                  >
-                                    <CalendarDays size={13} />
-                                  </button>
-
-                                  {profile.role !== 'user' && (
-                                    <>
-                                      <button
-                                        onClick={() => {
-                                          setCasaForm({
-                                            name: casa.name,
-                                            address: casa.address || '',
-                                            municipio: casa.municipio || '',
-                                            leader_id: casa.leader_id || '',
-                                          });
-                                          setCasaError('');
-                                          setCasaModal({ open: true, casa });
-                                        }}
-                                        className="btn btn-secondary btn-icon"
-                                        title="Editar"
-                                      >
-                                        <Edit2 size={13} />
-                                      </button>
-
-                                      {deleteCasaConfirm === casa.id ? (
-                                        <>
-                                          <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
-                                            <Check size={13} />
-                                          </button>
-                                          <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
-                                            <X size={13} />
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
-                                          <Trash2 size={13} />
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* ── Sub-tab: Asignar Miembros ── */}
-            {casasSubTab === 'asignar' && (
-              <div>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ flex: 1, minWidth: '200px' }}>
-                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Buscar miembro</label>
-                    <div style={{ position: 'relative' }}>
-                      <Search
-                        size={15}
-                        style={{
-                          position: 'absolute',
-                          left: '1rem',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          color: 'var(--text-muted)',
-                          pointerEvents: 'none',
-                        }}
-                      />
-                      <input
-                        className="form-input"
-                        type="text"
-                        placeholder="Buscar por nombre..."
-                        value={assignSearch}
-                        onChange={(e) => setAssignSearch(e.target.value)}
-                        style={{ paddingLeft: '2.5rem' }}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ minWidth: '220px' }}>
-                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Filtrar por Casa de Dios</label>
-                    <select
-                      className="form-select"
-                      value={assignSelectedCasa}
-                      onChange={(e) => setAssignSelectedCasa(e.target.value)}
-                    >
-                      <option value="">Todos los miembros</option>
-                      <option value="sin_asignar">🔴 Sin casa asignada</option>
-                      {houseGroups.map(hg => (
-                        <option key={hg.id} value={hg.id}>{hg.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {(() => {
-                  let filteredAssignMembers = members.filter(m => {
-                    const q = assignSearch.toLowerCase();
-                    const matchSearch = !q || m.full_name.toLowerCase().includes(q);
-                    let matchCasa = true;
-                    if (assignSelectedCasa === 'sin_asignar') {
-                      matchCasa = !m.house_group_id;
-                    } else if (assignSelectedCasa) {
-                      matchCasa = m.house_group_id === assignSelectedCasa;
-                    }
-                    return matchSearch && matchCasa;
-                  });
-
-                  // Sort: sin asignar primero
-                  filteredAssignMembers.sort((a, b) => {
-                    if (!a.house_group_id && b.house_group_id) return -1;
-                    if (a.house_group_id && !b.house_group_id) return 1;
-                    return a.full_name.localeCompare(b.full_name);
-                  });
-
-                  if (filteredAssignMembers.length === 0) {
-                    return (
-                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
-                        <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                        <p>No se encontraron miembros.</p>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="table-wrapper">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Nombre</th>
-                            <th>Miembro</th>
-                            <th>Municipio</th>
-                            <th>Casa de Dios Actual</th>
-                            <th style={{ textAlign: 'center' }}>Asignar / Cambiar</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredAssignMembers.map((member) => {
-                            const currentCasa = houseGroups.find(hg => hg.id === member.house_group_id);
-                            return (
-                              <tr key={member.id}>
-                                <td>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                                    <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
-                                      {member.full_name.charAt(0).toUpperCase()}
-                                    </div>
-                                    <span style={{ fontWeight: 600 }}>{member.full_name}</span>
-                                  </div>
-                                </td>
-                                <td>
-                                  <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
-                                </td>
-                                <td className="text-secondary">{member.municipio || '—'}</td>
-                                <td>
-                                  {currentCasa ? (
-                                    <span style={{ color: 'var(--gold-primary)', fontWeight: 600 }}>{currentCasa.name}</span>
-                                  ) : (
-                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin casa asignada</span>
-                                  )}
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
-                                    <select
-                                      className="form-select"
-                                      style={{ width: 'auto', padding: '0.4rem 2rem 0.4rem 0.75rem', fontSize: '0.82rem', minWidth: '160px' }}
-                                      value={member.house_group_id || ''}
-                                      disabled={assigningMember === member.id}
-                                      onChange={async (e) => {
-                                        const newCasaId = e.target.value || null;
-                                        setAssigningMember(member.id);
-                                        try {
-                                          const { error } = await supabase
-                                            .from('members')
-                                            .update({ house_group_id: newCasaId })
-                                            .eq('id', member.id);
-                                          if (error) throw error;
-                                          showToast(newCasaId ? 'Miembro asignado a Casa de Dios.' : 'Miembro desasignado.');
-                                          fetchMembers();
-                                        } catch (err) {
-                                          showToast('Error al asignar miembro.', 'error');
-                                        } finally {
-                                          setAssigningMember(null);
-                                        }
-                                      }}
-                                    >
-                                      <option value="">Sin asignar</option>
-                                      {houseGroups.map(hg => (
-                                        <option key={hg.id} value={hg.id}>{hg.name}</option>
-                                      ))}
-                                    </select>
-                                    {assigningMember === member.id && (
-                                      <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--gold-primary)' }} />
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                      <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem', textAlign: 'right' }}>
-                        Mostrando {filteredAssignMembers.length} de {members.length} miembros
-                        {' • '}<strong style={{ color: 'var(--gold-primary)' }}>{members.filter(m => !m.house_group_id).length}</strong> sin casa asignada
-                      </p>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        )}
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
@@ -2540,7 +3134,7 @@ export default function DashboardClient({ profile }: Props) {
                             username: p.username,
                             password: '',
                             full_name: p.full_name,
-                            phone: p.phone || '',
+                            phone: p.phone ? p.phone.replace(/\D/g, '') : '',
                             role: p.role,
                           });
                           setUserError('');
@@ -2625,27 +3219,38 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
 
-              {/* Lista de Líderes */}
+              {/* Liderazgo y Administración */}
               <div className="card" style={{ padding: '1.5rem' }}>
                 <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
-                  Lista de Líderes
+                  Liderazgo y Pastoral
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {houseGroups.map(hg => {
-                    const leader = profiles.find(p => p.id === hg.leader_id);
-                    return (
-                      <div key={hg.id} style={{ display: 'flex', flexDirection: 'column', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{leader ? leader.full_name : 'Sin líder asignado'}</p>
-                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{hg.name} • {hg.municipio || 'Sin municipio'}</p>
+                  {profiles.filter(p => p.role !== 'user').map(p => (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div className="avatar-placeholder" style={{ width: 32, height: 32 }}>
+                        {p.full_name.charAt(0).toUpperCase()}
                       </div>
-                    );
-                  })}
-                  {houseGroups.length === 0 && (
-                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay Casas de Dios registradas.</p>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0 }}>{p.full_name}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                          <span className={`badge badge-${p.role}`} style={{ fontSize: '0.62rem' }}>{ROLE_LABELS[p.role]}</span>
+                          {p.phone && <span className="text-muted" style={{ fontSize: '0.72rem' }}>{formatearTelefono(p.phone)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {singleCasa && (
+                    <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--border-gold)', borderRadius: '8px', background: 'rgba(212, 175, 55, 0.05)' }}>
+                      <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--gold-primary)', margin: '0 0 0.2rem 0' }}>
+                        🏠 {singleCasa.name}
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                        {singleCasa.address || 'Sede Principal'}{singleCasa.municipio ? ` • ${singleCasa.municipio}` : ''}
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
-
             </div>
           </div>
         )}
@@ -2654,7 +3259,7 @@ export default function DashboardClient({ profile }: Props) {
       {/* ── Member Modal ── */}
       {memberModal.open && (
         <Modal
-          title={memberModal.member ? 'Editar Miembro' : 'Agregar Miembro'}
+          title={memberModal.member ? 'Editar Miembro' : 'Nuevo Miembro'}
           onClose={() => setMemberModal({ open: false })}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -2766,56 +3371,30 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
-                  Consolidador Asignado *
-                </label>
-                <select
-                  className="form-select"
-                  value={memberForm.consolidator_id}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
-                  }
-                >
-                  <option value={profile.id}>Yo mismo ({profile.full_name})</option>
-                  {profiles
-                    .filter((p) => p.id !== profile.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                      </option>
-                    ))}
-                </select>
-                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                  El visitante se cargará en la vista del consolidador.
-                </span>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Flame size={14} style={{ color: 'var(--gold-primary)' }} />
-                  Casa de Dios
-                </label>
-                <select
-                  className="form-select"
-                  value={memberForm.house_group_id}
-                  onChange={(e) =>
-                    setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
-                  }
-                >
-                  <option value="">-- Sin Casa de Dios --</option>
-                  {houseGroups.map((hg) => (
-                    <option key={hg.id} value={hg.id}>
-                      {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
+            <div className="form-group">
+              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
+                Consolidador Asignado *
+              </label>
+              <select
+                className="form-select"
+                value={memberForm.consolidator_id}
+                onChange={(e) =>
+                  setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
+                }
+              >
+                <option value={profile.id}>Yo mismo ({profile.full_name})</option>
+                {profiles
+                  .filter((p) => p.id !== profile.id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
                     </option>
                   ))}
-                </select>
-                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                  Opcional: vincular a Casa de Dios.
-                </span>
-              </div>
+              </select>
+              <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                El visitante se cargará en la vista del consolidador.
+              </span>
             </div>
 
             <div className="form-group">
@@ -2832,19 +3411,59 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Teléfono</label>
+              <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Teléfono</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
+              </label>
               <input
+                id="member-phone"
                 className="form-input"
                 type="tel"
-                placeholder="0414-000-0000"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={11}
+                placeholder="Ej: 04141234567"
                 value={memberForm.phone}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                onBlur={() =>
-                  setMemberForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
-                }
+                onChange={(e) => {
+                  const clean = limpiarTelefonoInput(e.target.value);
+                  setMemberForm((f) => ({ ...f, phone: clean }));
+                }}
+                style={{
+                  borderColor: memberForm.phone
+                    ? validarTelefonoVenezolano(memberForm.phone).isValid
+                      ? '#10b981'
+                      : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
+                      ? '#e74c3c'
+                      : 'var(--border-gold)'
+                    : undefined,
+                }}
               />
+              {memberForm.phone && (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    const val = validarTelefonoVenezolano(memberForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             {memberError && (
@@ -2925,19 +3544,59 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Teléfono</label>
+              <label htmlFor="user-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Teléfono</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
+              </label>
               <input
+                id="user-phone"
                 className="form-input"
                 type="tel"
-                placeholder="0414-000-0000"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={11}
+                placeholder="Ej: 04141234567"
                 value={userForm.phone}
-                onChange={(e) =>
-                  setUserForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                onBlur={() =>
-                  setUserForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
-                }
+                onChange={(e) => {
+                  const clean = limpiarTelefonoInput(e.target.value);
+                  setUserForm((f) => ({ ...f, phone: clean }));
+                }}
+                style={{
+                  borderColor: userForm.phone
+                    ? validarTelefonoVenezolano(userForm.phone).isValid
+                      ? '#10b981'
+                      : userForm.phone.length >= 4 && !validarTelefonoVenezolano(userForm.phone).isPrefixValid
+                      ? '#e74c3c'
+                      : 'var(--border-gold)'
+                    : undefined,
+                }}
               />
+              {userForm.phone && (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    const val = validarTelefonoVenezolano(userForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número válido ({userForm.phone.slice(0, 4)}-{userForm.phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - userForm.phone.length} dígitos ({userForm.phone.length}/11)
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             <div className="form-group">
@@ -2987,18 +3646,25 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         </Modal>
       )}
-      {/* ── Casa Modal ── */}
-      {casaModal.open && (
-        <Modal title={casaModal.casa ? 'Editar Casa de Dios' : 'Nueva Casa de Dios'} onClose={() => setCasaModal({ open: false })}>
+      {/* ── Modal Configuración Casa de Dios (Solo Administrador / Principal) ── */}
+      {singleCasaModal && (
+        <Modal
+          title="Casa de Dios de la Congregación"
+          onClose={() => setSingleCasaModal(false)}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>
+              Configura los datos de la Casa de Dios de la congregación. Todos los miembros registrados se asocian automáticamente a esta Casa de Dios.
+            </p>
+
             <div className="form-group">
-              <label className="form-label">Nombre de la Casa *</label>
+              <label className="form-label">Nombre de la Casa de Dios *</label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="Ej. Casa Betania"
-                value={casaForm.name}
-                onChange={(e) => setCasaForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Ej. Avivamiento León de la Tribu de Judá"
+                value={singleCasaForm.name}
+                onChange={(e) => setSingleCasaForm((f) => ({ ...f, name: e.target.value }))}
                 autoFocus
               />
             </div>
@@ -3007,10 +3673,10 @@ export default function DashboardClient({ profile }: Props) {
               <label className="form-label">Municipio</label>
               <select
                 className="form-select"
-                value={casaForm.municipio}
-                onChange={(e) => setCasaForm((f) => ({ ...f, municipio: e.target.value }))}
+                value={singleCasaForm.municipio}
+                onChange={(e) => setSingleCasaForm((f) => ({ ...f, municipio: e.target.value }))}
               >
-                <option value="">-- Seleccionar --</option>
+                <option value="">-- Seleccionar Municipio --</option>
                 {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -3022,102 +3688,20 @@ export default function DashboardClient({ profile }: Props) {
               <input
                 className="form-input"
                 type="text"
-                placeholder="Urb. El Centro, Calle 2"
-                value={casaForm.address}
-                onChange={(e) => setCasaForm((f) => ({ ...f, address: e.target.value }))}
+                placeholder="Urb. El Centro, Calle Principal..."
+                value={singleCasaForm.address}
+                onChange={(e) => setSingleCasaForm((f) => ({ ...f, address: e.target.value }))}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Líder Asignado</label>
-              <select
-                className="form-select"
-                value={casaForm.leader_id}
-                onChange={(e) => setCasaForm((f) => ({ ...f, leader_id: e.target.value }))}
-              >
-                <option value="">-- Seleccionar líder --</option>
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.full_name} ({ROLE_LABELS[p.role]})</option>
-                ))}
-              </select>
-            </div>
-
-            {casaError && <p className="form-error">{casaError}</p>}
+            {singleCasaError && <p className="form-error">{singleCasaError}</p>}
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <button onClick={() => setCasaModal({ open: false })} className="btn btn-secondary">
+              <button onClick={() => setSingleCasaModal(false)} className="btn btn-secondary">
                 Cancelar
               </button>
-              <button onClick={saveCasa} className="btn btn-primary" disabled={savingCasa}>
-                {savingCasa ? 'Guardando...' : casaModal.casa ? 'Guardar cambios' : 'Crear Casa'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Service History Modal ── */}
-      {historyModal.open && (
-        <Modal title={`Historial de Servicios - ${historyModal.houseGroupName || ''}`} onClose={() => setHistoryModal({ open: false })}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '60vh', overflowY: 'auto' }}>
-            {(() => {
-              const meetings = houseGroupMeetings.filter(m => m.house_group_id === historyModal.houseGroupId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              
-              if (meetings.length === 0) {
-                return (
-                  <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
-                    <CalendarDays size={32} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
-                    <p>No se han registrado servicios en esta Casa de Dios.</p>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="table-wrapper">
-                  <table style={{ minWidth: '400px' }}>
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Día</th>
-                        <th>Tema / Enseñanza</th>
-                        <th style={{ textAlign: 'center' }}>Asistentes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {meetings.map(meeting => {
-                        const dateObj = new Date(meeting.date + 'T12:00:00Z');
-                        const dayName = dateObj.toLocaleDateString('es-ES', { weekday: 'long' });
-                        const dateString = dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                        const attendeesCount = attendances.filter(a => a.meeting_id === meeting.id).length;
-                        
-                        return (
-                          <tr key={meeting.id}>
-                            <td suppressHydrationWarning>{dateString}</td>
-                            <td suppressHydrationWarning style={{ textTransform: 'capitalize' }}>{dayName}</td>
-                            <td><strong>{meeting.topic || 'Sin título'}</strong></td>
-                            <td style={{ textAlign: 'center' }}>
-                              <span style={{ 
-                                background: 'var(--bg-card-hover)', 
-                                padding: '0.2rem 0.6rem', 
-                                borderRadius: '12px', 
-                                fontSize: '0.85rem',
-                                color: 'var(--gold-primary)'
-                              }}>
-                                {attendeesCount}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
-            
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <button onClick={() => setHistoryModal({ open: false })} className="btn btn-secondary">
-                Cerrar
+              <button onClick={handleSaveSingleCasa} className="btn btn-primary" disabled={savingSingleCasa}>
+                {savingSingleCasa ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
           </div>
@@ -3234,7 +3818,7 @@ export default function DashboardClient({ profile }: Props) {
         {tabs.map((t) => (
           <div
             key={t.key}
-            onClick={() => setActiveTab(t.key)}
+            onClick={() => handleTabClick(t.key)}
             style={{
               display: 'flex',
               flexDirection: 'column',

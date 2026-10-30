@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import type { Role } from '@/lib/types';
+import { validarTelefonoVenezolano } from '@/lib/utils';
 
 /** Email interno oculto — los usuarios solo ven su username */
 function usernameToEmail(username: string) {
@@ -67,6 +68,15 @@ export async function adminCreateUser(data: {
   const guardError = await assertAdminOrPrincipal();
   if (guardError) return guardError;
 
+  let cleanPhone: string | null = null;
+  if (data.phone && data.phone.trim()) {
+    const phoneVal = validarTelefonoVenezolano(data.phone);
+    if (!phoneVal.isValid) {
+      return { error: phoneVal.error || 'Número de teléfono inválido.' };
+    }
+    cleanPhone = phoneVal.cleanPhone;
+  }
+
   const admin = createAdminClient();
   const email = usernameToEmail(data.username);
 
@@ -82,7 +92,7 @@ export async function adminCreateUser(data: {
     id: newUser.user.id,
     username: data.username.toLowerCase().trim(),
     full_name: data.full_name,
-    phone: data.phone || null,
+    phone: cleanPhone,
     role: data.role,
   }, { onConflict: 'id' });
 
@@ -140,7 +150,17 @@ export async function adminUpdateUser(
   const profilePayload: any = {};
   if (data.username) profilePayload.username = data.username.toLowerCase().trim();
   if (data.full_name !== undefined) profilePayload.full_name = data.full_name;
-  if (data.phone !== undefined) profilePayload.phone = data.phone || null;
+  if (data.phone !== undefined) {
+    if (data.phone && data.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(data.phone);
+      if (!phoneVal.isValid) {
+        return { error: phoneVal.error || 'Número de teléfono inválido.' };
+      }
+      profilePayload.phone = phoneVal.cleanPhone;
+    } else {
+      profilePayload.phone = null;
+    }
+  }
   if (data.role) profilePayload.role = data.role;
 
   if (Object.keys(profilePayload).length > 0) {
@@ -223,4 +243,126 @@ export async function updateUserActivity(): Promise<void> {
     // Si la columna aún no existe o hay algún error de red, silenciar
   }
 }
+
+/* ─── KEEPALIVE / PREVENCIÓN DE PAUSA EN SUPABASE ─────────── */
+
+export async function getKeepAliveStatusAction(): Promise<{
+  last_ping: string | null;
+  ping_count: number;
+  source: string;
+  status: string;
+}> {
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from('system_keepalive')
+      .select('last_ping, ping_count, source, status')
+      .eq('id', 'primary_heartbeat')
+      .maybeSingle();
+
+    if (data) {
+      return {
+        last_ping: data.last_ping,
+        ping_count: Number(data.ping_count) || 0,
+        source: data.source || 'sistema',
+        status: data.status || 'active',
+      };
+    }
+  } catch {
+    // Si la tabla aún no existe
+  }
+
+  return {
+    last_ping: null,
+    ping_count: 0,
+    source: 'No configurado',
+    status: 'pending_migration',
+  };
+}
+
+export async function recordKeepAliveAction(source: string = 'manual_dashboard'): Promise<{
+  success: boolean;
+  message: string;
+  last_ping: string;
+  ping_count: number;
+}> {
+  const nowIso = new Date().toISOString();
+  try {
+    const supabase = await createClient();
+
+    // Intentar invocar función RPC si existe
+    const { data: rpcData, error: rpcError } = await supabase.rpc('record_heartbeat', {
+      ping_source: source,
+    });
+
+    if (!rpcError && rpcData) {
+      return {
+        success: true,
+        message: 'Pulso de actividad registrado exitosamente',
+        last_ping: rpcData.last_ping || nowIso,
+        ping_count: Number(rpcData.ping_count) || 1,
+      };
+    }
+
+    // Si no, intentar upsert directo
+    const { data: existing } = await supabase
+      .from('system_keepalive')
+      .select('*')
+      .eq('id', 'primary_heartbeat')
+      .maybeSingle();
+
+    if (existing) {
+      const nextCount = (Number(existing.ping_count) || 0) + 1;
+      await supabase
+        .from('system_keepalive')
+        .update({
+          last_ping: nowIso,
+          ping_count: nextCount,
+          source,
+          status: 'active',
+          updated_at: nowIso,
+        })
+        .eq('id', 'primary_heartbeat');
+
+      return {
+        success: true,
+        message: 'Pulso registrado exitosamente',
+        last_ping: nowIso,
+        ping_count: nextCount,
+      };
+    } else {
+      await supabase
+        .from('system_keepalive')
+        .insert({
+          id: 'primary_heartbeat',
+          last_ping: nowIso,
+          ping_count: 1,
+          source,
+          status: 'active',
+          updated_at: nowIso,
+        });
+
+      return {
+        success: true,
+        message: 'Primer registro de pulso creado exitosamente',
+        last_ping: nowIso,
+        ping_count: 1,
+      };
+    }
+  } catch {
+    // Si la tabla aún no existe, ejecutamos un query de fallback para registrar actividad en Supabase
+    try {
+      const admin = createAdminClient();
+      await admin.from('house_groups').select('id').limit(1);
+    } catch {}
+
+    return {
+      success: true,
+      message: 'Consulta enviada a Supabase (tabla system_keepalive pendiente de migración)',
+      last_ping: nowIso,
+      ping_count: 1,
+    };
+  }
+}
+
 

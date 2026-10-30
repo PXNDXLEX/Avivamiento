@@ -842,3 +842,44 @@ tbody tr:last-child {
     display: flex;
   }
 }
+
+/* ========================================
+   MODALS & POPUPS (Ventanas Emergentes)
+   ======================================== */
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: var(--z-modal, 300) !important;
+  background: rgba(0, 0, 0, 0.78) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 1rem !important;
+  animation: fade-in 0.2s ease both !important;
+}
+
+.modal-content {
+  background: var(--bg-glass) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--border-gold) !important;
+  border-radius: var(--border-radius-lg) !important;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8), var(--shadow-gold) !important;
+  width: 100% !important;
+  max-width: 580px !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+  padding: 1.75rem !important;
+  animation: bounce-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
+}
+
+html.light .modal-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+
+html.light .modal-content {
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.18), var(--shadow-gold) !important;
+}
