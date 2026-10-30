@@ -2089,6 +2089,7 @@ export default function DashboardClient({ profile }: Props) {
         {activeTab === 'seguimiento' && (
           selectedFollowUpMember ? (
             <MemberFollowUpSheet
+              key={`followup-sheet-${selectedFollowUpMember.id}`}
               member={selectedFollowUpMember}
               profile={profile}
               profiles={profiles}
@@ -2099,7 +2100,7 @@ export default function DashboardClient({ profile }: Props) {
               }}
             />
           ) : (
-            <div className="animate-fade-in">
+            <div key="dashboard-followup-list-main" className="animate-fade-in">
               <div
                 style={{
                   display: 'flex',

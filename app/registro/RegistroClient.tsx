@@ -233,7 +233,7 @@ export default function RegistroClient({ profile }: Props) {
         if (err) throw err;
         showToast('¡Miembro registrado exitosamente!');
         // Automatically take them to the list after adding their first member
-        setActiveTab('list');
+        handleTabClick('list');
       }
       resetForm();
       fetchMembers();
@@ -1040,6 +1040,7 @@ export default function RegistroClient({ profile }: Props) {
         {activeTab === 'seguimiento' && (
           selectedFollowUpMember ? (
             <MemberFollowUpSheet
+              key={`followup-sheet-${selectedFollowUpMember.id}`}
               member={selectedFollowUpMember}
               profile={profile}
               profiles={profiles}
@@ -1047,7 +1048,7 @@ export default function RegistroClient({ profile }: Props) {
               onMemberUpdated={fetchMembers}
             />
           ) : (
-            <div className="animate-fade-in" style={{ maxWidth: '900px', margin: '0 auto' }}>
+            <div key="followup-list-main" className="animate-fade-in" style={{ maxWidth: '900px', margin: '0 auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                   <h1 className="font-cinzel" style={{ fontSize: '1.5rem', margin: 0, color: 'var(--text-gold)' }}>
