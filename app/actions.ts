@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import type { Role } from '@/lib/types';
+import { validarTelefonoVenezolano } from '@/lib/utils';
 
 /** Email interno oculto — los usuarios solo ven su username */
 function usernameToEmail(username: string) {
@@ -67,6 +68,15 @@ export async function adminCreateUser(data: {
   const guardError = await assertAdminOrPrincipal();
   if (guardError) return guardError;
 
+  let cleanPhone: string | null = null;
+  if (data.phone && data.phone.trim()) {
+    const phoneVal = validarTelefonoVenezolano(data.phone);
+    if (!phoneVal.isValid) {
+      return { error: phoneVal.error || 'Número de teléfono inválido.' };
+    }
+    cleanPhone = phoneVal.cleanPhone;
+  }
+
   const admin = createAdminClient();
   const email = usernameToEmail(data.username);
 
@@ -82,7 +92,7 @@ export async function adminCreateUser(data: {
     id: newUser.user.id,
     username: data.username.toLowerCase().trim(),
     full_name: data.full_name,
-    phone: data.phone || null,
+    phone: cleanPhone,
     role: data.role,
   }, { onConflict: 'id' });
 
@@ -140,7 +150,17 @@ export async function adminUpdateUser(
   const profilePayload: any = {};
   if (data.username) profilePayload.username = data.username.toLowerCase().trim();
   if (data.full_name !== undefined) profilePayload.full_name = data.full_name;
-  if (data.phone !== undefined) profilePayload.phone = data.phone || null;
+  if (data.phone !== undefined) {
+    if (data.phone && data.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(data.phone);
+      if (!phoneVal.isValid) {
+        return { error: phoneVal.error || 'Número de teléfono inválido.' };
+      }
+      profilePayload.phone = phoneVal.cleanPhone;
+    } else {
+      profilePayload.phone = null;
+    }
+  }
   if (data.role) profilePayload.role = data.role;
 
   if (Object.keys(profilePayload).length > 0) {

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -982,7 +982,7 @@ export default function DashboardClient({ profile }: Props) {
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: formatearTelefono(member.phone),
+      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
       house_group_id: member.house_group_id || '',
@@ -996,8 +996,21 @@ export default function DashboardClient({ profile }: Props) {
       setMemberError('El nombre completo es requerido.');
       return;
     }
+
+    if (memberForm.phone && memberForm.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(memberForm.phone);
+      if (!phoneVal.isValid) {
+        setMemberError(phoneVal.error || 'Número de teléfono inválido.');
+        return;
+      }
+    }
+
     setSavingMember(true);
     setMemberError('');
+
+    const cleanMemberPhone = memberForm.phone && memberForm.phone.trim()
+      ? validarTelefonoVenezolano(memberForm.phone).cleanPhone
+      : null;
 
     const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
 
@@ -1007,7 +1020,7 @@ export default function DashboardClient({ profile }: Props) {
       gender: memberForm.gender || null,
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
-      phone: memberForm.phone ? formatearTelefono(memberForm.phone) : null,
+      phone: cleanMemberPhone,
       status: memberForm.status,
       is_consolidated: memberForm.status === 'Consolidado',
       house_group_id: memberForm.house_group_id || null,
@@ -1097,18 +1110,29 @@ export default function DashboardClient({ profile }: Props) {
       setUserError('Usuario y nombre son requeridos para editar.');
       return;
     }
+    if (userForm.phone && userForm.phone.trim()) {
+      const phoneVal = validarTelefonoVenezolano(userForm.phone);
+      if (!phoneVal.isValid) {
+        setUserError(phoneVal.error || 'Número de teléfono inválido.');
+        return;
+      }
+    }
     setSavingUser(true);
     setUserError('');
+    const cleanUserPhone = userForm.phone && userForm.phone.trim()
+      ? validarTelefonoVenezolano(userForm.phone).cleanPhone
+      : '';
+    const userPayload = { ...userForm, phone: cleanUserPhone };
     try {
       if (userModal.userId) {
-        const result = await adminUpdateUser(userModal.userId, userForm);
+        const result = await adminUpdateUser(userModal.userId, userPayload);
         if (result && 'error' in result) {
           setUserError(result.error);
           return;
         }
         showToast('Usuario actualizado exitosamente.');
       } else {
-        const result = await adminCreateUser(userForm);
+        const result = await adminCreateUser(userPayload);
         if (result && 'error' in result) {
           setUserError(result.error);
           return;
@@ -3498,7 +3522,7 @@ export default function DashboardClient({ profile }: Props) {
                             username: p.username,
                             password: '',
                             full_name: p.full_name,
-                            phone: p.phone || '',
+                            phone: p.phone ? p.phone.replace(/\D/g, '') : '',
                             role: p.role,
                           });
                           setUserError('');
@@ -3790,19 +3814,59 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Teléfono</label>
+              <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Teléfono</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
+              </label>
               <input
+                id="member-phone"
                 className="form-input"
                 type="tel"
-                placeholder="0414-000-0000"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={11}
+                placeholder="Ej: 04141234567"
                 value={memberForm.phone}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                onBlur={() =>
-                  setMemberForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
-                }
+                onChange={(e) => {
+                  const clean = limpiarTelefonoInput(e.target.value);
+                  setMemberForm((f) => ({ ...f, phone: clean }));
+                }}
+                style={{
+                  borderColor: memberForm.phone
+                    ? validarTelefonoVenezolano(memberForm.phone).isValid
+                      ? '#10b981'
+                      : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
+                      ? '#e74c3c'
+                      : 'var(--border-gold)'
+                    : undefined,
+                }}
               />
+              {memberForm.phone && (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    const val = validarTelefonoVenezolano(memberForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             {memberError && (
@@ -3883,19 +3947,59 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Teléfono</label>
+              <label htmlFor="user-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Teléfono</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
+              </label>
               <input
+                id="user-phone"
                 className="form-input"
                 type="tel"
-                placeholder="0414-000-0000"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={11}
+                placeholder="Ej: 04141234567"
                 value={userForm.phone}
-                onChange={(e) =>
-                  setUserForm((f) => ({ ...f, phone: e.target.value }))
-                }
-                onBlur={() =>
-                  setUserForm((f) => ({ ...f, phone: formatearTelefono(f.phone) }))
-                }
+                onChange={(e) => {
+                  const clean = limpiarTelefonoInput(e.target.value);
+                  setUserForm((f) => ({ ...f, phone: clean }));
+                }}
+                style={{
+                  borderColor: userForm.phone
+                    ? validarTelefonoVenezolano(userForm.phone).isValid
+                      ? '#10b981'
+                      : userForm.phone.length >= 4 && !validarTelefonoVenezolano(userForm.phone).isPrefixValid
+                      ? '#e74c3c'
+                      : 'var(--border-gold)'
+                    : undefined,
+                }}
               />
+              {userForm.phone && (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    const val = validarTelefonoVenezolano(userForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número válido ({userForm.phone.slice(0, 4)}-{userForm.phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - userForm.phone.length} dígitos ({userForm.phone.length}/11)
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
 
             <div className="form-group">
