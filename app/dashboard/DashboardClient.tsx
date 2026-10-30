@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
-import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting } from '@/lib/types';
+import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -57,6 +57,9 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  FileText,
+  TrendingUp,
+  Clock,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -84,6 +87,36 @@ const CASA_COLORS = [
   '#14b8a6', // Teal
   '#6366f1', // Indigo
 ];
+
+const FOLLOW_UP_TYPE_CONFIG: Record<
+  FollowUpType,
+  { label: string; icon: any; color: string; bg: string }
+> = {
+  llamada: {
+    label: 'Llamada',
+    icon: Phone,
+    color: '#3b82f6',
+    bg: 'rgba(59, 130, 246, 0.15)',
+  },
+  visita: {
+    label: 'Visita',
+    icon: Home,
+    color: '#10b981',
+    bg: 'rgba(16, 185, 129, 0.15)',
+  },
+  mensaje: {
+    label: 'WhatsApp',
+    icon: MessageCircle,
+    color: '#25D366',
+    bg: 'rgba(37, 211, 102, 0.15)',
+  },
+  otro: {
+    label: 'Nota / Otro',
+    icon: FileText,
+    color: '#8b5cf6',
+    bg: 'rgba(139, 92, 246, 0.15)',
+  },
+};
 
 const ROLE_LABELS: Record<Role, string> = {
   principal: 'Principal',
@@ -287,9 +320,14 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
-  const [reportsTab, setReportsTab] = useState<'general' | 'casas'>('general');
+  const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
+
+  /* Follow-ups state for report */
+  const [allFollowUps, setAllFollowUps] = useState<MemberFollowUp[]>([]);
+  const [loadingFollowUps, setLoadingFollowUps] = useState(false);
+  const [reportFollowUpTypeFilter, setReportFollowUpTypeFilter] = useState<string>('all');
 
   /* Asignar Miembros state */
   const [assignSearch, setAssignSearch] = useState('');
@@ -445,18 +483,77 @@ export default function DashboardClient({ profile }: Props) {
     }
   }, [supabase]);
 
-  useEffect(() => {
-    fetchMembers();
-    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
-      fetchProfiles();
-      fetchCasasData();
+  const fetchAllFollowUps = useCallback(async () => {
+    setLoadingFollowUps(true);
+    let loadedRecords: MemberFollowUp[] = [];
+    try {
+      const { data, error } = await supabase
+        .from('member_follow_ups')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        loadedRecords = data;
+      }
+    } catch {
+      // Ignorar si la tabla no está creada aún o falla la conexión
     }
-  }, [fetchMembers, fetchProfiles, fetchCasasData, profile.role]);
+
+    // Merge con datos guardados localmente (avivamiento_followups_*)
+    if (typeof window !== 'undefined') {
+      try {
+        const localRecords: MemberFollowUp[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('avivamiento_followups_')) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                localRecords.push(...parsed);
+              }
+            }
+          }
+        }
+        if (localRecords.length > 0) {
+          const map = new Map<string, MemberFollowUp>();
+          loadedRecords.forEach((r) => map.set(r.id, r));
+          localRecords.forEach((r) => {
+            if (!map.has(r.id)) map.set(r.id, r);
+          });
+          loadedRecords = Array.from(map.values()).sort(
+            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+        }
+      } catch {
+        // Ignorar errores de localStorage
+      }
+    }
+
+    setAllFollowUps(loadedRecords);
+    setLoadingFollowUps(false);
+  }, [supabase]);
 
   useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo') fetchProfiles();
-    if (activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') fetchCasasData();
-  }, [activeTab, fetchProfiles, fetchCasasData]);
+    fetchMembers();
+    fetchCasasData();
+    fetchAllFollowUps();
+    if (profile.role === 'principal' || profile.role === 'admin' || profile.role === 'pastor') {
+      fetchProfiles();
+    }
+  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps, profile.role]);
+
+  useEffect(() => {
+    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
+      fetchProfiles();
+    }
+    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') {
+      fetchCasasData();
+    }
+    if (activeTab === 'reports' || activeTab === 'seguimiento') {
+      fetchAllFollowUps();
+    }
+  }, [activeTab, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
   const lastActivityRecordedRef = useRef<number>(0);
@@ -714,6 +811,130 @@ export default function DashboardClient({ profile }: Props) {
   });
 
   const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
+
+  /* ── Seguimiento General Data Calculations ── */
+  const filteredFollowUps = useMemo(() => {
+    return allFollowUps.filter((item) => {
+      if (dateFilter === 'all') return true;
+      const itemDate = new Date(item.date);
+      const now = new Date();
+      if (dateFilter === 'today') {
+        return itemDate.toDateString() === now.toDateString();
+      } else if (dateFilter === 'week') {
+        const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+        const startOfWeek = new Date(new Date().setDate(diff));
+        startOfWeek.setHours(0, 0, 0, 0);
+        return itemDate >= startOfWeek;
+      } else if (dateFilter === 'month') {
+        return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+      } else if (dateFilter === 'year') {
+        return itemDate.getFullYear() === now.getFullYear();
+      }
+      return true;
+    });
+  }, [allFollowUps, dateFilter]);
+
+  const followUpMetrics = useMemo(() => {
+    const total = filteredFollowUps.length;
+    const llamadas = filteredFollowUps.filter((f) => f.type === 'llamada').length;
+    const visitas = filteredFollowUps.filter((f) => f.type === 'visita').length;
+    const mensajes = filteredFollowUps.filter((f) => f.type === 'mensaje').length;
+    const otros = filteredFollowUps.filter((f) => f.type === 'otro').length;
+
+    const contactedMemberIds = new Set(filteredFollowUps.map((f) => f.member_id));
+    const totalMembers = members.length;
+    const cobertura = totalMembers > 0 ? Math.round((contactedMemberIds.size / totalMembers) * 100) : 0;
+    const consolidados = members.filter((m) => m.status === 'Consolidado').length;
+    const efectividad = totalMembers > 0 ? Math.round((consolidados / totalMembers) * 100) : 0;
+
+    return {
+      total,
+      llamadas,
+      visitas,
+      mensajes,
+      otros,
+      contactedCount: contactedMemberIds.size,
+      totalMembers,
+      cobertura,
+      consolidados,
+      efectividad,
+    };
+  }, [filteredFollowUps, members]);
+
+  const followUpTypeChartData = useMemo(() => {
+    return [
+      { name: 'Llamadas Telefónicas', value: followUpMetrics.llamadas, color: '#3b82f6' },
+      { name: 'Visitas Presenciales', value: followUpMetrics.visitas, color: '#10b981' },
+      { name: 'Mensajes WhatsApp', value: followUpMetrics.mensajes, color: '#25D366' },
+      { name: 'Otros / Notas', value: followUpMetrics.otros, color: '#8b5cf6' },
+    ];
+  }, [followUpMetrics]);
+
+  const consolidatorPerformanceData = useMemo(() => {
+    return profiles
+      .map((p) => {
+        const userFollowUps = filteredFollowUps.filter(
+          (f) => f.user_id === p.id || f.user_name?.toLowerCase() === p.full_name?.toLowerCase()
+        );
+        const llamadas = userFollowUps.filter((f) => f.type === 'llamada').length;
+        const visitas = userFollowUps.filter((f) => f.type === 'visita').length;
+        const mensajes = userFollowUps.filter((f) => f.type === 'mensaje').length;
+        const total = userFollowUps.length;
+
+        const assignedMembers = members.filter((m) => m.consolidator_id === p.id);
+        const assignedCount = assignedMembers.length;
+        const consolidatedCount = assignedMembers.filter((m) => m.status === 'Consolidado').length;
+        const conversionRate = assignedCount > 0 ? Math.round((consolidatedCount / assignedCount) * 100) : 0;
+
+        return {
+          id: p.id,
+          fullName: p.full_name,
+          shortName: p.full_name.split(' ')[0],
+          username: p.username,
+          role: p.role,
+          lastSeenAt: p.last_seen_at,
+          llamadas,
+          visitas,
+          mensajes,
+          total,
+          assignedCount,
+          consolidatedCount,
+          conversionRate,
+        };
+      })
+      .sort((a, b) => b.total - a.total || b.assignedCount - a.assignedCount);
+  }, [profiles, filteredFollowUps, members]);
+
+  const followUpTimelineData = useMemo(() => {
+    const grouped: Record<
+      string,
+      { date: string; displayDate: string; Llamadas: number; Visitas: number; Mensajes: number; Total: number }
+    > = {};
+
+    const sorted = [...filteredFollowUps].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    sorted.forEach((item) => {
+      const dateKey = item.date.slice(0, 10);
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = {
+          date: dateKey,
+          displayDate: formatearFechaCorta(dateKey),
+          Llamadas: 0,
+          Visitas: 0,
+          Mensajes: 0,
+          Total: 0,
+        };
+      }
+      if (item.type === 'llamada') grouped[dateKey].Llamadas += 1;
+      else if (item.type === 'visita') grouped[dateKey].Visitas += 1;
+      else if (item.type === 'mensaje') grouped[dateKey].Mensajes += 1;
+      grouped[dateKey].Total += 1;
+    });
+
+    return Object.values(grouped);
+  }, [filteredFollowUps]);
 
   /* ── Member CRUD ── */
   function openAddMember() {
@@ -1117,6 +1338,131 @@ export default function DashboardClient({ profile }: Props) {
               <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
               <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
+            </div>
+
+            {/* Casas de Dios y Asistencia en Vista Principal */}
+            <div style={{ marginTop: '2.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>
+                    Asistencia en Casas de Dios
+                  </h2>
+                  <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                    Historial comparativo de participantes por servicio realizado
+                  </p>
+                </div>
+                {casasTimelineData.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                    <button
+                      onClick={() => setCasasChartType('bar')}
+                      className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                    >
+                      Barras
+                    </button>
+                    <button
+                      onClick={() => setCasasChartType('line')}
+                      className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                    >
+                      Líneas
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Metricas Rápidas Casas */}
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
+                <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+              </div>
+
+              {/* Attendance Chart - Por Casa y Fecha */}
+              <div className="card" style={{ padding: '1.5rem' }}>
+                {houseGroups.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 0' }}>
+                    <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                    <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                  </div>
+                ) : casasTimelineData.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
+                    <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                    <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                      Sin registros de servicios con fecha aún
+                    </p>
+                    <p style={{ fontSize: '0.85rem' }}>
+                      No hay registros de actividades o servicios registrados para este período.
+                    </p>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={320}>
+                    {casasChartType === 'bar' ? (
+                      <BarChart data={casasTimelineData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                        <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                          }}
+                        />
+                        <Legend
+                          formatter={(value) => (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                              {value}
+                            </span>
+                          )}
+                        />
+                        {houseGroups.map((hg, idx) => (
+                          <Bar
+                            key={hg.id}
+                            dataKey={hg.name}
+                            fill={CASA_COLORS[idx % CASA_COLORS.length]}
+                            radius={[4, 4, 0, 0]}
+                          />
+                        ))}
+                      </BarChart>
+                    ) : (
+                      <LineChart data={casasTimelineData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                        <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                          }}
+                        />
+                        <Legend
+                          formatter={(value) => (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                              {value}
+                            </span>
+                          )}
+                        />
+                        {houseGroups.map((hg, idx) => (
+                          <Line
+                            key={hg.id}
+                            type="monotone"
+                            dataKey={hg.name}
+                            stroke={CASA_COLORS[idx % CASA_COLORS.length]}
+                            strokeWidth={2.5}
+                            dot={{ r: 4 }}
+                            activeDot={{ r: 6 }}
+                          />
+                        ))}
+                      </LineChart>
+                    )}
+                  </ResponsiveContainer>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1705,7 +2051,10 @@ export default function DashboardClient({ profile }: Props) {
               profile={profile}
               profiles={profiles}
               onBack={() => setSelectedFollowUpMember(null)}
-              onMemberUpdated={fetchMembers}
+              onMemberUpdated={() => {
+                fetchMembers();
+                fetchAllFollowUps();
+              }}
             />
           ) : (
             <div className="animate-fade-in">
@@ -1976,11 +2325,11 @@ export default function DashboardClient({ profile }: Props) {
                 Reportes Generales
               </button>
               <button
-                onClick={() => setReportsTab('casas')}
-                className={`btn ${reportsTab === 'casas' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setReportsTab('seguimiento')}
+                className={`btn ${reportsTab === 'seguimiento' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
-                Casas de Dios
+                Seguimiento General
               </button>
             </div>
 
@@ -2144,133 +2493,493 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
             ) : (
-              <div
-                className="animate-fade-in"
-                style={{
-                  display: 'grid',
-                  gap: '1.5rem',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
-                }}
-              >
-                {/* Metricas Casas */}
-                <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
-                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+              /* ── RESUMEN DE SEGUIMIENTO GENERAL ── */
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                {/* Encabezado descriptivo */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h2 className="font-cinzel" style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-gold)' }}>
+                      Resumen de Seguimiento Pastoral y Consolidación
+                    </h2>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+                      Métricas ejecutivas de llamadas, visitas presenciales y mensajes de seguimiento registrados por el equipo.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.4rem 0.9rem', borderRadius: '8px', border: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <Calendar size={14} style={{ color: 'var(--gold-primary)' }} />
+                    <span>Filtro activo: <strong>{dateFilter === 'all' ? 'Histórico Completo' : dateFilter === 'today' ? 'Hoy' : dateFilter === 'week' ? 'Esta Semana' : dateFilter === 'month' ? 'Este Mes' : 'Este Año'}</strong></span>
+                  </div>
                 </div>
 
-                {/* Attendance Chart - Por Casa y Fecha con Leyenda */}
-                <div className="card" style={{ padding: '1.5rem', gridColumn: '1 / -1' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                    <div>
-                      <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>
-                        Asistencia por Casa de Dios y Fecha
-                      </h3>
-                      <p className="text-muted" style={{ fontSize: '0.8rem' }}>
-                        Historial comparativo de participantes por servicio realizado
-                      </p>
-                    </div>
-                    {casasTimelineData.length > 0 && (
-                      <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                        <button
-                          onClick={() => setCasasChartType('bar')}
-                          className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                        >
-                          Barras
-                        </button>
-                        <button
-                          onClick={() => setCasasChartType('line')}
-                          className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                        >
-                          Líneas
-                        </button>
+                {/* KPI Metrics Grid (6 tarjetas) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                  <StatCard
+                    label="Total Interacciones"
+                    value={followUpMetrics.total}
+                    icon="📋"
+                    color="var(--gold-primary)"
+                  />
+                  <StatCard
+                    label="Llamadas"
+                    value={followUpMetrics.llamadas}
+                    icon="📞"
+                    color="#3b82f6"
+                  />
+                  <StatCard
+                    label="Visitas Presenciales"
+                    value={followUpMetrics.visitas}
+                    icon="🏠"
+                    color="#10b981"
+                  />
+                  <StatCard
+                    label="Mensajes WhatsApp"
+                    value={followUpMetrics.mensajes}
+                    icon="💬"
+                    color="#25D366"
+                  />
+                  <StatCard
+                    label="Miembros Atendidos"
+                    value={followUpMetrics.contactedCount}
+                    icon="👥"
+                    color="#06b6d4"
+                  />
+                  <StatCard
+                    label="Consolidados"
+                    value={followUpMetrics.consolidados}
+                    icon="🛡️"
+                    color="#f59e0b"
+                  />
+                </div>
+
+                {/* Gráficas Principales: Distribución por Canal & Actividad por Consolidador */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.5rem' }}>
+                  {/* Gráfica Donut: Distribución de Contactos */}
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '0.3rem' }}>
+                      Distribución por Tipo de Interacción
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Canales utilizados para el contacto pastoral
+                    </p>
+
+                    {followUpMetrics.total === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                        <Phone size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>Sin interacciones en este período</p>
+                        <p style={{ fontSize: '0.82rem' }}>Registra llamadas o visitas desde la pestaña de Seguimiento.</p>
                       </div>
+                    ) : (
+                      <>
+                        <div style={{ position: 'relative' }}>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <PieChart>
+                              <Pie
+                                data={followUpTypeChartData.filter(d => d.value > 0)}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={95}
+                                paddingAngle={4}
+                                dataKey="value"
+                                isAnimationActive={true}
+                              >
+                                {followUpTypeChartData.filter(d => d.value > 0).map((entry, i) => (
+                                  <Cell key={i} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{
+                                  background: '#1a1a2e',
+                                  border: '1px solid #c9a84c',
+                                  borderRadius: '8px',
+                                  color: '#f0e6c8',
+                                  fontSize: '0.82rem',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                                }}
+                                itemStyle={{ color: '#f0e6c8' }}
+                                labelStyle={{ color: '#c9a84c', fontWeight: 600 }}
+                                formatter={(value: number, name: string) => [
+                                  `${value} (${followUpMetrics.total > 0 ? Math.round((value / followUpMetrics.total) * 100) : 0}%)`,
+                                  name
+                                ]}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        {/* Leyenda 2x2 */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem 1rem', marginTop: '1rem' }}>
+                          {followUpTypeChartData.map((entry) => {
+                            const pct = followUpMetrics.total > 0 ? Math.round((entry.value / followUpMetrics.total) * 100) : 0;
+                            return (
+                              <div key={entry.name} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: entry.color, flexShrink: 0, display: 'inline-block' }} />
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {entry.name}: <strong style={{ color: 'var(--text-primary)' }}>{entry.value}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>({pct}%)</span>
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
 
-                  {houseGroups.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '4rem 0' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                  {/* Gráfica de Barras: Rendimiento por Consolidador */}
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <h3 className="font-cinzel" style={{ fontSize: '0.95rem', marginBottom: '0.3rem' }}>
+                      Actividad por Consolidador
+                    </h3>
+                    <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+                      Comparativa de interacciones realizadas por cada líder
+                    </p>
+
+                    {consolidatorPerformanceData.filter(c => c.total > 0).length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                        <Users size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>Sin actividad de consolidación</p>
+                        <p style={{ fontSize: '0.82rem' }}>Aún no hay llamadas o visitas registradas por el equipo.</p>
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                          data={consolidatorPerformanceData.filter(c => c.total > 0).slice(0, 7)}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="shortName" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.82rem',
+                            }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: '0.78rem', paddingTop: '0.5rem' }} />
+                          <Bar dataKey="Llamadas" stackId="a" fill="#3b82f6" />
+                          <Bar dataKey="Visitas" stackId="a" fill="#10b981" />
+                          <Bar dataKey="Mensajes" stackId="a" fill="#25D366" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                {/* Gráfica de Tendencia / Evolución en el Tiempo */}
+                {followUpTimelineData.length > 1 && (
+                  <div className="card" style={{ padding: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <h3 className="font-cinzel" style={{ fontSize: '0.95rem', margin: 0 }}>
+                          Evolución del Seguimiento en el Tiempo
+                        </h3>
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                          Volumen diario de interacciones pastorales
+                        </p>
+                      </div>
                     </div>
-                  ) : casasTimelineData.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                        Sin registros de servicios con fecha aún
+                    <ResponsiveContainer width="100%" height={240}>
+                      <AreaChart data={followUpTimelineData}>
+                        <defs>
+                          <linearGradient id="colorFollowUpTotal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--gold-primary)" stopOpacity={0.7} />
+                            <stop offset="95%" stopColor="var(--gold-primary)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                        <XAxis dataKey="displayDate" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{
+                            background: 'var(--bg-card)',
+                            border: '1px solid var(--border-gold)',
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.82rem',
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '0.78rem' }} />
+                        <Area type="monotone" dataKey="Total" stroke="var(--gold-primary)" fillOpacity={1} fill="url(#colorFollowUpTotal)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="Visitas" stroke="#10b981" fillOpacity={0} strokeWidth={2} />
+                        <Area type="monotone" dataKey="Llamadas" stroke="#3b82f6" fillOpacity={0} strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Tabla: Rendimiento del Equipo de Consolidación */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0 }}>
+                        Rendimiento del Equipo de Consolidación
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        Detalle de miembros asignados, contactos realizados y tasa de consolidación por líder
                       </p>
-                      <p style={{ fontSize: '0.85rem' }}>
-                        No hay registros de actividades o servicios registrados para este período.
+                    </div>
+                  </div>
+
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Consolidador</th>
+                          <th style={{ textAlign: 'center' }}>Asignados</th>
+                          <th style={{ textAlign: 'center' }}>📞 Llamadas</th>
+                          <th style={{ textAlign: 'center' }}>🏠 Visitas</th>
+                          <th style={{ textAlign: 'center' }}>💬 Mensajes</th>
+                          <th style={{ textAlign: 'center' }}>Total Acciones</th>
+                          <th style={{ textAlign: 'center' }}>Consolidados</th>
+                          <th style={{ textAlign: 'center' }}>Efectividad</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {consolidatorPerformanceData.map((item) => {
+                          const onlineStatus = getUserOnlineStatus(item.lastSeenAt);
+                          return (
+                            <tr key={item.id}>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                  <div
+                                    className="avatar-placeholder"
+                                    style={{
+                                      width: 32,
+                                      height: 32,
+                                      fontSize: '0.75rem',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {item.fullName.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.88rem' }}>
+                                        {item.fullName}
+                                      </span>
+                                      {item.id === profile.id && (
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--gold-primary)' }}>(Tú)</span>
+                                      )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.1rem' }}>
+                                      <span className={`badge badge-${item.role}`} style={{ fontSize: '0.62rem', padding: '0.05rem 0.35rem' }}>
+                                        {ROLE_LABELS[item.role]}
+                                      </span>
+                                      <span style={{ fontSize: '0.7rem', color: onlineStatus.isOnline ? '#10b981' : 'var(--text-muted)' }}>
+                                        {onlineStatus.isOnline ? '● En línea' : '○ Desconectado'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ textAlign: 'center', fontWeight: 600 }}>
+                                {item.assignedCount}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#3b82f6', fontWeight: 600 }}>
+                                {item.llamadas}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600 }}>
+                                {item.visitas}
+                              </td>
+                              <td style={{ textAlign: 'center', color: '#25D366', fontWeight: 600 }}>
+                                {item.mensajes}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  background: item.total > 0 ? 'rgba(201, 168, 76, 0.15)' : 'var(--bg-secondary)',
+                                  color: item.total > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
+                                  padding: '0.2rem 0.6rem',
+                                  borderRadius: '12px',
+                                  fontWeight: 700,
+                                  fontSize: '0.82rem',
+                                  border: item.total > 0 ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
+                                }}>
+                                  {item.total}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'center', fontWeight: 600, color: '#f59e0b' }}>
+                                {item.consolidatedCount}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    color: item.conversionRate >= 50 ? '#10b981' : item.conversionRate > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
+                                  }}>
+                                    {item.conversionRate}%
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Tabla: Bitácora de Últimas Interacciones de Seguimiento */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0 }}>
+                        Registro Reciente de Interacciones
+                      </h3>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        Histórico auditado de contactos realizados a miembros de la iglesia
+                      </p>
+                    </div>
+
+                    {/* Filtros rápidos de tipo */}
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('all')}
+                        className={`btn ${reportFollowUpTypeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('llamada')}
+                        className={`btn ${reportFollowUpTypeFilter === 'llamada' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        📞 Llamadas
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('visita')}
+                        className={`btn ${reportFollowUpTypeFilter === 'visita' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        🏠 Visitas
+                      </button>
+                      <button
+                        onClick={() => setReportFollowUpTypeFilter('mensaje')}
+                        className={`btn ${reportFollowUpTypeFilter === 'mensaje' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', borderRadius: '15px' }}
+                      >
+                        💬 WhatsApp
+                      </button>
+                    </div>
+                  </div>
+
+                  {filteredFollowUps.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
+                      <Phone size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
+                        No hay interacciones registradas para este período
+                      </p>
+                      <p style={{ fontSize: '0.82rem' }}>
+                        Las llamadas, visitas y mensajes registrados en Seguimiento se reflejarán aquí.
                       </p>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height={320}>
-                      {casasChartType === 'bar' ? (
-                        <BarChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Bar
-                              key={hg.id}
-                              dataKey={hg.name}
-                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
-                              radius={[4, 4, 0, 0]}
-                            />
-                          ))}
-                        </BarChart>
-                      ) : (
-                        <LineChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Line
-                              key={hg.id}
-                              type="monotone"
-                              dataKey={hg.name}
-                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
-                              strokeWidth={2.5}
-                              dot={{ r: 4 }}
-                              activeDot={{ r: 6 }}
-                            />
-                          ))}
-                        </LineChart>
-                      )}
-                    </ResponsiveContainer>
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Fecha</th>
+                            <th>Miembro</th>
+                            <th>Consolidador</th>
+                            <th>Tipo</th>
+                            <th>Detalle / Resultado</th>
+                            <th style={{ textAlign: 'center' }}>Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredFollowUps
+                            .filter(f => reportFollowUpTypeFilter === 'all' || f.type === reportFollowUpTypeFilter)
+                            .slice(0, 15)
+                            .map((item) => {
+                              const targetMember = members.find(m => m.id === item.member_id);
+                              const typeCfg = FOLLOW_UP_TYPE_CONFIG[item.type] || FOLLOW_UP_TYPE_CONFIG.otro;
+                              const IconComponent = typeCfg.icon;
+
+                              return (
+                                <tr key={item.id}>
+                                  <td style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                    {formatearFechaInteraccion(item.date)}
+                                  </td>
+                                  <td>
+                                    {targetMember ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div
+                                          className="avatar-placeholder"
+                                          style={{ width: 28, height: 28, fontSize: '0.7rem', flexShrink: 0 }}
+                                        >
+                                          {targetMember.full_name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.85rem' }}>
+                                            {targetMember.full_name}
+                                          </p>
+                                          <span className={`badge badge-${targetMember.status.toLowerCase()}`} style={{ fontSize: '0.6rem' }}>
+                                            {targetMember.status}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Miembro registrado</span>
+                                    )}
+                                  </td>
+                                  <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                    {item.user_name || 'Consolidador'}
+                                  </td>
+                                  <td>
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        padding: '0.2rem 0.6rem',
+                                        borderRadius: '12px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 600,
+                                        backgroundColor: typeCfg.bg,
+                                        color: typeCfg.color,
+                                        border: `1px solid ${typeCfg.color}40`,
+                                      }}
+                                    >
+                                      <IconComponent size={12} />
+                                      {typeCfg.label}
+                                    </span>
+                                  </td>
+                                  <td style={{ maxWidth: '320px' }}>
+                                    {item.result_status && (
+                                      <p style={{ margin: '0 0 0.2rem', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                                        {item.result_status}
+                                      </p>
+                                    )}
+                                    <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {item.detail || 'Sin notas adicionales.'}
+                                    </p>
+                                  </td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    {targetMember && (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedFollowUpMember(targetMember);
+                                          setActiveTab('seguimiento');
+                                        }}
+                                        className="btn btn-secondary btn-icon"
+                                        title="Ver historial completo del miembro"
+                                        aria-label="Ver historial"
+                                        style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
+                                      >
+                                        <ClipboardList size={13} />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
