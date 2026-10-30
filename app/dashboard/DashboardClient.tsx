@@ -1854,8 +1854,7 @@ export default function DashboardClient({ profile }: Props) {
                         </td>
                         <td style={{ minWidth: '180px' }}>
                           {profile.role === 'principal' || profile.role === 'admin' ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                               <select
                                 className="form-select"
                                 style={{
@@ -1907,14 +1906,11 @@ export default function DashboardClient({ profile }: Props) {
                                     {member.consolidator_name || 'Consolidador previo'}
                                   </option>
                                 )}
-                                {profiles.map((p) => {
-                                  const status = getUserOnlineStatus(p.last_seen_at);
-                                  return (
-                                    <option key={p.id} value={p.id}>
-                                      {status.isOnline ? '🟢' : '⚪'} {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                                    </option>
-                                  );
-                                })}
+                                {profiles.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                                  </option>
+                                ))}
                               </select>
                               {member.consolidator_id && member.consolidator_id !== profile.id && (() => {
                                 const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
@@ -1933,36 +1929,6 @@ export default function DashboardClient({ profile }: Props) {
                                   </a>
                                 );
                               })()}
-                            </div>
-                            {member.consolidator_id && (() => {
-                              const currentConsolidator = profiles.find((p) => p.id === member.consolidator_id);
-                              if (!currentConsolidator) return null;
-                              const status = getUserOnlineStatus(currentConsolidator.last_seen_at);
-                              return (
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.3rem',
-                                    marginTop: '0.2rem',
-                                    fontSize: '0.72rem',
-                                    color: status.isOnline ? '#10b981' : 'var(--text-muted)',
-                                  }}
-                                  title={status.label + ' - ' + status.timeFormatted}
-                                >
-                                  <span
-                                    style={{
-                                      width: 6,
-                                      height: 6,
-                                      borderRadius: '50%',
-                                      backgroundColor: status.isOnline ? '#10b981' : '#6b7280',
-                                      boxShadow: status.isOnline ? '0 0 4px #10b981' : 'none',
-                                    }}
-                                  />
-                                  <span>{status.isOnline ? 'En línea' : status.timeFormatted}</span>
-                                </div>
-                              );
-                            })()}
                             </div>
                           ) : (
                             <span className="text-secondary">{member.consolidator_name}</span>
