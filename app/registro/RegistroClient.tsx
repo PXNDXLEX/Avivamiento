@@ -55,7 +55,7 @@ export default function RegistroClient({ profile }: Props) {
 
   /* Follow-up state */
   const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
-  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'all' | 'pending' | 'consolidated'>('mine');
+  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'pending' | 'consolidated'>('mine');
   const [seguimientoSearch, setSeguimientoSearch] = useState('');
 
   /* Form */
@@ -90,28 +90,23 @@ export default function RegistroClient({ profile }: Props) {
     setTimeout(() => setToast(null), 3500);
   }
 
-
-
-  /* Fetch members & profiles */
+  /* Fetch members & profiles - estrictamente sus propios registros */
   const fetchMembers = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
       .from('members')
       .select('*')
+      .eq('consolidator_id', profile.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     setMembers(data ?? []);
     setLoading(false);
-  }, [supabase]);
+  }, [supabase, profile.id]);
 
   const fetchProfiles = useCallback(async () => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false });
-    setProfiles(data ?? []);
-  }, [supabase]);
+    // El consolidador no debe ver los usuarios ni perfiles ajenos
+    setProfiles([profile]);
+  }, [profile]);
 
   useEffect(() => {
     fetchMembers();
@@ -128,7 +123,8 @@ export default function RegistroClient({ profile }: Props) {
           status: newStatus,
           is_consolidated: isNowConsolidated,
         })
-        .eq('id', member.id);
+        .eq('id', member.id)
+        .eq('consolidator_id', profile.id);
       if (err) throw err;
       showToast(isNowConsolidated ? `${member.full_name} marcado como Consolidado 🎉` : 'Estado restablecido a Nuevo');
       fetchMembers();
@@ -186,7 +182,8 @@ export default function RegistroClient({ profile }: Props) {
         const { error: err } = await supabase
           .from('members')
           .update(payload)
-          .eq('id', editingId);
+          .eq('id', editingId)
+          .eq('consolidator_id', profile.id);
         if (err) throw err;
         showToast('Miembro actualizado correctamente.');
       } else {
@@ -241,7 +238,7 @@ export default function RegistroClient({ profile }: Props) {
 
   const pendingConsolidation = myMembers.filter((m) => !m.is_consolidated);
 
-  const seguimientoList = members.filter((m) => {
+  const seguimientoList = myMembers.filter((m) => {
     if (seguimientoSearch.trim()) {
       const q = seguimientoSearch.toLowerCase().trim();
       const match =
@@ -251,14 +248,12 @@ export default function RegistroClient({ profile }: Props) {
       if (!match) return false;
     }
 
-    if (seguimientoFilter === 'mine') {
-      return m.consolidator_id === profile.id;
-    } else if (seguimientoFilter === 'pending') {
+    if (seguimientoFilter === 'pending') {
       return m.status !== 'Consolidado' && !m.is_consolidated;
     } else if (seguimientoFilter === 'consolidated') {
       return m.status === 'Consolidado' || m.is_consolidated;
     }
-    return true;
+    return true; // 'mine': todos sus miembros asignados
   });
 
   const renderForm = () => (
@@ -1017,10 +1012,9 @@ export default function RegistroClient({ profile }: Props) {
                     borderRadius: '8px',
                   }}
                 >
-                  <option value="mine">Mis miembros asignados ({myMembers.length})</option>
-                  <option value="pending">Pendientes de consolidar</option>
-                  <option value="consolidated">Ya consolidados</option>
-                  <option value="all">Todos los miembros de la iglesia ({members.length})</option>
+                  <option value="mine">Todos mis asignados ({myMembers.length})</option>
+                  <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
+                  <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
                 </select>
               </div>
 
@@ -1032,7 +1026,7 @@ export default function RegistroClient({ profile }: Props) {
                     No hay miembros en esta vista
                   </p>
                   <p style={{ fontSize: '0.82rem' }}>
-                    Cambia el filtro a &quot;Todos los miembros&quot; o registra uno nuevo.
+                    No tienes registros en este filtro. Puedes registrar un nuevo miembro para iniciar su seguimiento.
                   </p>
                 </div>
               ) : (

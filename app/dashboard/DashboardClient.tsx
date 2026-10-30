@@ -447,16 +447,29 @@ export default function DashboardClient({ profile }: Props) {
   /* ── Data fetching ── */
   const fetchMembers = useCallback(async () => {
     setLoadingMembers(true);
-    const { data } = await supabase
+    let query = supabase
       .from('members')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
+
+    // Si es consolidador, solo consultar sus registros propios
+    if (profile.role === 'user') {
+      query = query.eq('consolidator_id', profile.id);
+    }
+
+    const { data } = await query;
     setMembers(data ?? []);
     setLoadingMembers(false);
-  }, [supabase]);
+  }, [supabase, profile.id, profile.role]);
 
   const fetchProfiles = useCallback(async () => {
+    // Si es consolidador, no ver usuarios ni perfiles ajenos
+    if (profile.role === 'user') {
+      setProfiles([profile]);
+      setLoadingProfiles(false);
+      return;
+    }
     setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
@@ -465,9 +478,11 @@ export default function DashboardClient({ profile }: Props) {
       .order('created_at', { ascending: false });
     setProfiles(data ?? []);
     setLoadingProfiles(false);
-  }, [supabase]);
+  }, [supabase, profile]);
 
   const fetchCasasData = useCallback(async () => {
+    // El consolidador no gestiona ni ve Casas de Dios
+    if (profile.role === 'user') return;
     try {
       const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
         supabase.from('house_groups').select('*'),
@@ -480,9 +495,11 @@ export default function DashboardClient({ profile }: Props) {
     } catch (e) {
       // Ignorar de forma silenciosa si las tablas no existen todavía
     }
-  }, [supabase]);
+  }, [supabase, profile.role]);
 
   const fetchAllFollowUps = useCallback(async () => {
+    // El consolidador no ve seguimientos generales
+    if (profile.role === 'user') return;
     setLoadingFollowUps(true);
     let loadedRecords: MemberFollowUp[] = [];
     try {
@@ -623,6 +640,11 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Derived state ── */
   const filteredMembers = members.filter((m) => {
+    // Si el rol es consolidador, NUNCA ver miembros ajenos
+    if (profile.role === 'user' && m.consolidator_id !== profile.id) {
+      return false;
+    }
+
     const q = search.toLowerCase();
     const matchSearch =
       m.full_name.toLowerCase().includes(q) ||
@@ -656,6 +678,11 @@ export default function DashboardClient({ profile }: Props) {
 
   const seguimientoMembers: Member[] = useMemo(() => {
     return members.filter((m) => {
+      // Si el rol es consolidador, NUNCA ver miembros ajenos
+      if (profile.role === 'user' && m.consolidator_id !== profile.id) {
+        return false;
+      }
+
       const q = search.toLowerCase();
       const matchSearch =
         m.full_name.toLowerCase().includes(q) ||
@@ -1182,9 +1209,13 @@ export default function DashboardClient({ profile }: Props) {
   const tabs = profile.role === 'pastor' ? [
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
-  ] : [
+  ] : profile.role === 'user' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
+    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
+  ] : [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
@@ -1198,6 +1229,13 @@ export default function DashboardClient({ profile }: Props) {
         ]
       : []),
   ];
+
+  /* Guardia para rol user: no permitir pestañas no autorizadas */
+  useEffect(() => {
+    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
+      setActiveTab('home');
+    }
+  }, [profile.role, activeTab]);
 
   /* ══════════════════════════════════════════════════════
      RENDER
@@ -1329,130 +1367,132 @@ export default function DashboardClient({ profile }: Props) {
               <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
             </div>
 
-            {/* Casas de Dios y Asistencia en Vista Principal */}
-            <div style={{ marginTop: '2.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                <div>
-                  <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>
-                    Asistencia en Casas de Dios
-                  </h2>
-                  <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
-                    Historial comparativo de participantes por servicio realizado
-                  </p>
+            {/* Casas de Dios y Asistencia en Vista Principal (solo admin, pastor y principal) */}
+            {profile.role !== 'user' && (
+              <div style={{ marginTop: '2.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>
+                      Asistencia en Casas de Dios
+                    </h2>
+                    <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                      Historial comparativo de participantes por servicio realizado
+                    </p>
+                  </div>
+                  {casasTimelineData.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                      <button
+                        onClick={() => setCasasChartType('bar')}
+                        className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                      >
+                        Barras
+                      </button>
+                      <button
+                        onClick={() => setCasasChartType('line')}
+                        className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                      >
+                        Líneas
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {casasTimelineData.length > 0 && (
-                  <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                    <button
-                      onClick={() => setCasasChartType('bar')}
-                      className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                    >
-                      Barras
-                    </button>
-                    <button
-                      onClick={() => setCasasChartType('line')}
-                      className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                    >
-                      Líneas
-                    </button>
-                  </div>
-                )}
-              </div>
 
-              {/* Metricas Rápidas Casas */}
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
-                <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
-              </div>
+                {/* Metricas Rápidas Casas */}
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
+                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+                </div>
 
-              {/* Attendance Chart - Por Casa y Fecha */}
-              <div className="card" style={{ padding: '1.5rem' }}>
-                {houseGroups.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 0' }}>
-                    <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                    <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
-                  </div>
-                ) : casasTimelineData.length === 0 ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
-                    <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                    <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                      Sin registros de servicios con fecha aún
-                    </p>
-                    <p style={{ fontSize: '0.85rem' }}>
-                      No hay registros de actividades o servicios registrados para este período.
-                    </p>
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={320}>
-                    {casasChartType === 'bar' ? (
-                      <BarChart data={casasTimelineData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                        <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{
-                            background: 'var(--bg-card)',
-                            border: '1px solid var(--border-gold)',
-                            borderRadius: '8px',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                          }}
-                        />
-                        <Legend
-                          formatter={(value) => (
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                              {value}
-                            </span>
-                          )}
-                        />
-                        {houseGroups.map((hg, idx) => (
-                          <Bar
-                            key={hg.id}
-                            dataKey={hg.name}
-                            fill={CASA_COLORS[idx % CASA_COLORS.length]}
-                            radius={[4, 4, 0, 0]}
+                {/* Attendance Chart - Por Casa y Fecha */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  {houseGroups.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 0' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                    </div>
+                  ) : casasTimelineData.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                        Sin registros de servicios con fecha aún
+                      </p>
+                      <p style={{ fontSize: '0.85rem' }}>
+                        No hay registros de actividades o servicios registrados para este período.
+                      </p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={320}>
+                      {casasChartType === 'bar' ? (
+                        <BarChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
                           />
-                        ))}
-                      </BarChart>
-                    ) : (
-                      <LineChart data={casasTimelineData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                        <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                        <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{
-                            background: 'var(--bg-card)',
-                            border: '1px solid var(--border-gold)',
-                            borderRadius: '8px',
-                            color: 'var(--text-primary)',
-                            fontSize: '0.85rem',
-                          }}
-                        />
-                        <Legend
-                          formatter={(value) => (
-                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                              {value}
-                            </span>
-                          )}
-                        />
-                        {houseGroups.map((hg, idx) => (
-                          <Line
-                            key={hg.id}
-                            type="monotone"
-                            dataKey={hg.name}
-                            stroke={CASA_COLORS[idx % CASA_COLORS.length]}
-                            strokeWidth={2.5}
-                            dot={{ r: 4 }}
-                            activeDot={{ r: 6 }}
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
                           />
-                        ))}
-                      </LineChart>
-                    )}
-                  </ResponsiveContainer>
-                )}
+                          {houseGroups.map((hg, idx) => (
+                            <Bar
+                              key={hg.id}
+                              dataKey={hg.name}
+                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
+                              radius={[4, 4, 0, 0]}
+                            />
+                          ))}
+                        </BarChart>
+                      ) : (
+                        <LineChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
+                          />
+                          {houseGroups.map((hg, idx) => (
+                            <Line
+                              key={hg.id}
+                              type="monotone"
+                              dataKey={hg.name}
+                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
+                              strokeWidth={2.5}
+                              dot={{ r: 4 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          ))}
+                        </LineChart>
+                      )}
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -2106,29 +2146,31 @@ export default function DashboardClient({ profile }: Props) {
                   />
                 </div>
 
-                {/* Filtro por consolidador / asignación */}
-                <select
-                  className="form-select"
-                  value={seguimientoConsolidatorFilter}
-                  onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
-                  style={{
-                    padding: '0.7rem 1rem',
-                    fontSize: '0.88rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <option value="all">Todos los miembros</option>
-                  <option value="mine">Mis miembros asignados</option>
-                  <option value="unassigned">Sin asignar</option>
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
-                    </option>
-                  ))}
-                </select>
+                {/* Filtro por consolidador / asignación (solo admin, pastor y principal) */}
+                {profile.role !== 'user' && (
+                  <select
+                    className="form-select"
+                    value={seguimientoConsolidatorFilter}
+                    onChange={(e) => setSeguimientoConsolidatorFilter(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      fontSize: '0.88rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <option value="all">Todos los miembros</option>
+                    <option value="mine">Mis miembros asignados</option>
+                    <option value="unassigned">Sin asignar</option>
+                    {profiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 {/* Filtro por estatus de consolidación */}
                 <select
