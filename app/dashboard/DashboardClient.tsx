@@ -268,13 +268,14 @@ function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 300,
-        background: 'rgba(0,0,0,0.75)',
-        backdropFilter: 'blur(6px)',
+        zIndex: 9999,
+        background: 'rgba(0,0,0,0.78)',
+        backdropFilter: 'blur(8px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: '1rem',
+        animation: 'fade-in 0.2s ease',
       }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -286,6 +287,9 @@ function Modal({
           padding: '1.75rem',
           maxHeight: '90vh',
           overflowY: 'auto',
+          borderRadius: '16px',
+          border: '1px solid var(--border-gold)',
+          boxShadow: '0 25px 60px rgba(0,0,0,0.75)',
         }}
       >
         <div
@@ -294,15 +298,19 @@ function Modal({
             justifyContent: 'space-between',
             alignItems: 'center',
             marginBottom: '1.5rem',
+            paddingBottom: '0.75rem',
+            borderBottom: '1px solid var(--border-subtle)',
           }}
         >
-          <h2 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
+          <h2 className="font-cinzel" style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-gold)' }}>
             {title}
           </h2>
           <button
             onClick={onClose}
             className="btn btn-secondary btn-icon"
             aria-label="Cerrar"
+            style={{ width: 34, height: 34, borderRadius: '8px' }}
+            title="Cerrar ventana"
           >
             <X size={16} />
           </button>
@@ -1358,7 +1366,17 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             )}
 
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Resumen de Registros</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0 }}>Resumen de Registros</h2>
+              <button
+                onClick={openAddMember}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                <Plus size={16} />
+                <span>Nuevo Miembro</span>
+              </button>
+            </div>
             <div className="grid-5" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
@@ -1605,7 +1623,7 @@ export default function DashboardClient({ profile }: Props) {
                   style={{ whiteSpace: 'nowrap' }}
                 >
                   <Plus size={16} />
-                  Agregar Miembro
+                  Nuevo Miembro
                 </button>
               </div>
             </div>
@@ -3594,7 +3612,7 @@ export default function DashboardClient({ profile }: Props) {
       {/* ── Member Modal ── */}
       {memberModal.open && (
         <Modal
-          title={memberModal.member ? 'Editar Miembro' : 'Agregar Miembro'}
+          title={memberModal.member ? 'Editar Miembro' : 'Nuevo Miembro'}
           onClose={() => setMemberModal({ open: false })}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

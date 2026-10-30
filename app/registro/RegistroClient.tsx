@@ -140,6 +140,11 @@ export default function RegistroClient({ profile }: Props) {
     setShowFormModal(false);
   }
 
+  function openNewMember() {
+    resetForm();
+    setShowFormModal(true);
+  }
+
   function startEdit(member: Member) {
     setForm({
       full_name: member.full_name,
@@ -152,7 +157,6 @@ export default function RegistroClient({ profile }: Props) {
     });
     setEditingId(member.id);
     setShowFormModal(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -672,9 +676,19 @@ export default function RegistroClient({ profile }: Props) {
               </div>
             )}
 
-            <h2 className="font-cinzel" style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>
-              Tu Resumen de Registros
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0 }}>
+                Tu Resumen de Registros
+              </h2>
+              <button
+                onClick={openNewMember}
+                className="btn btn-primary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+              >
+                <Plus size={16} />
+                <span>Nuevo Miembro</span>
+              </button>
+            </div>
             <div className="grid-5">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
@@ -687,15 +701,24 @@ export default function RegistroClient({ profile }: Props) {
 
         {/* ── List Tab ── */}
         {activeTab === 'list' && (
-          <div className="animate-fade-in" style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
-            {/* List Section (Expands) */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div className="animate-fade-in" style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <h2 className="font-cinzel" style={{ fontSize: '1.3rem', margin: 0 }}>Mis Registros</h2>
                 <span className="badge badge-visitante">
                   {filteredMembers.length}{filteredMembers.length !== members.length ? ` de ${members.length}` : ''} miembro{members.length !== 1 ? 's' : ''}
                 </span>
               </div>
+              <button
+                onClick={openNewMember}
+                className="btn btn-primary"
+                id="open-new-member-modal-btn"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.6rem 1.15rem', fontSize: '0.88rem', fontWeight: 600 }}
+              >
+                <Plus size={16} />
+                <span>Nuevo Miembro</span>
+              </button>
+            </div>
 
               {/* Buscador en tiempo real */}
               <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
@@ -756,6 +779,14 @@ export default function RegistroClient({ profile }: Props) {
                   <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.2 }} />
                   <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Sin registros</p>
                   <p>Aún no tienes registros en tu lista.</p>
+                  <button
+                    onClick={openNewMember}
+                    className="btn btn-primary"
+                    style={{ marginTop: '1.25rem', display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
+                  >
+                    <Plus size={16} />
+                    <span>Registrar Miembro</span>
+                  </button>
                 </div>
               ) : filteredMembers.length === 0 ? (
                 <div className="card" style={{ textAlign: 'center', padding: '3.5rem 2rem', color: 'var(--text-muted)' }}>
@@ -929,22 +960,6 @@ export default function RegistroClient({ profile }: Props) {
                   ))}
                 </div>
               )}
-            </div>
-
-            {/* Form Card (Desktop only, sticky) */}
-            <div className="card-glass hide-on-mobile" style={{ width: '380px', position: 'sticky', top: '2rem', padding: '1.75rem', height: 'fit-content' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                <h2 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
-                  {editingId ? 'Editar Miembro' : 'Nuevo Miembro'}
-                </h2>
-                {editingId && (
-                  <button onClick={resetForm} className="btn btn-secondary btn-icon" style={{ width: 28, height: 28 }}>
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              {renderForm()}
-            </div>
           </div>
         )}
 
@@ -1105,26 +1120,62 @@ export default function RegistroClient({ profile }: Props) {
         )}
       </main>
 
-      {/* ── Form Modal / Bottom Sheet (Mobile Only) ── */}
+      {/* ── Form Modal Flotante (Universal para todos los usuarios y pantallas) ── */}
       {showFormModal && (
-        <div className="hide-on-desktop" style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
-          zIndex: 9999, display: 'flex', alignItems: 'flex-end',
-          animation: 'fade-in 0.2s ease'
-        }}>
-          <div style={{
-            background: 'var(--bg-secondary)', width: '100%',
-            borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-            padding: '1.5rem', borderTop: '1px solid var(--border-gold)',
-            maxHeight: '90vh', overflowY: 'auto',
-            animation: 'slide-up 0.3s ease'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-              <h2 className="font-cinzel" style={{ fontSize: '1.1rem' }}>
-                {editingId ? 'Editar Miembro' : 'Nuevo Miembro'}
-              </h2>
-              <button onClick={resetForm} className="btn btn-secondary btn-icon" style={{ width: 32, height: 32 }}>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.78)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            animation: 'fade-in 0.2s ease',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) resetForm();
+          }}
+        >
+          <div
+            className="card-glass animate-bounce-in"
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              padding: '1.75rem',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              borderRadius: '16px',
+              border: '1px solid var(--border-gold)',
+              boxShadow: '0 25px 60px rgba(0,0,0,0.75)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '1.5rem',
+                paddingBottom: '0.75rem',
+                borderBottom: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div>
+                <h2 className="font-cinzel" style={{ fontSize: '1.25rem', margin: 0, color: 'var(--text-gold)' }}>
+                  {editingId ? 'Editar Miembro' : 'Nuevo Miembro'}
+                </h2>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '0.2rem 0 0 0' }}>
+                  {editingId ? 'Modifica los datos del registro' : 'Registra los datos de la persona para su consolidación'}
+                </p>
+              </div>
+              <button
+                onClick={resetForm}
+                className="btn btn-secondary btn-icon"
+                style={{ width: 34, height: 34, borderRadius: '8px' }}
+                title="Cerrar ventana"
+              >
                 <X size={16} />
               </button>
             </div>
