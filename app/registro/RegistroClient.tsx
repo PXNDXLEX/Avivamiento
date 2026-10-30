@@ -528,6 +528,7 @@ export default function RegistroClient({ profile }: Props) {
       {toast && (
         <div
           role="alert"
+          onClick={() => setToast(null)}
           className={`toast toast-${toast.type === 'success' ? 'success' : 'error'}`}
           style={{
             position: 'fixed',
@@ -535,14 +536,20 @@ export default function RegistroClient({ profile }: Props) {
             right: '1.5rem',
             zIndex: 9999,
             animation: 'slide-in-right 0.3s ease',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
           }}
+          title="Click para cerrar"
         >
           {toast.type === 'success' ? (
             <CheckCircle size={16} />
           ) : (
             <AlertTriangle size={16} />
           )}
-          {toast.msg}
+          <span>{toast.msg}</span>
+          <X size={14} style={{ marginLeft: '0.4rem', opacity: 0.7 }} />
         </div>
       )}
 

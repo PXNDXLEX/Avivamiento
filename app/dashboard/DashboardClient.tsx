@@ -232,10 +232,19 @@ function StatCard({
 function Toast({
   msg,
   type,
+  onClose,
 }: {
   msg: string;
   type: 'success' | 'error';
+  onClose?: () => void;
 }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose?.();
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [onClose, msg]);
+
   return (
     <div
       role="alert"
@@ -246,10 +255,17 @@ function Toast({
         right: '1.5rem',
         zIndex: 9999,
         animation: 'slide-in-right 0.3s ease',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.6rem',
       }}
+      onClick={onClose}
+      title="Click para cerrar"
     >
       {type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-      {msg}
+      <span>{msg}</span>
+      <X size={14} style={{ marginLeft: '0.4rem', opacity: 0.7 }} />
     </div>
   );
 }
@@ -1265,7 +1281,7 @@ export default function DashboardClient({ profile }: Props) {
   return (
     <div className="app-layout">
       {/* Toast */}
-      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       {/* ── Sidebar (Desktop) ── */}
       <aside className="sidebar hide-on-mobile" style={{ padding: '2rem 1.5rem' }}>
