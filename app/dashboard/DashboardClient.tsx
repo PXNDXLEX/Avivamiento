@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser, getKeepAliveStatusAction, recordKeepAliveAction } from '@/app/actions';
+import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
 import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput } from '@/lib/utils';
@@ -60,9 +60,6 @@ import {
   FileText,
   TrendingUp,
   Clock,
-  Database,
-  Zap,
-  RefreshCw,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -370,42 +367,6 @@ export default function DashboardClient({ profile }: Props) {
   const [singleCasaError, setSingleCasaError] = useState('');
   const houseGroups = useMemo(() => (singleCasa ? [singleCasa] : []), [singleCasa]);
 
-  /* Supabase Keep-Alive (Prevención de Pausa Automática) */
-  const [keepAliveData, setKeepAliveData] = useState<{
-    last_ping: string | null;
-    ping_count: number;
-    source: string;
-    status: string;
-  } | null>(null);
-  const [pulsingKeepAlive, setPulsingKeepAlive] = useState(false);
-
-  const fetchKeepAliveStatus = useCallback(async () => {
-    try {
-      const res = await getKeepAliveStatusAction();
-      setKeepAliveData(res);
-    } catch {
-      // Silenciar
-    }
-  }, []);
-
-  const handleTriggerKeepAlive = async (source = 'dashboard_manual') => {
-    setPulsingKeepAlive(true);
-    try {
-      const res = await recordKeepAliveAction(source);
-      setKeepAliveData({
-        last_ping: res.last_ping,
-        ping_count: res.ping_count,
-        source,
-        status: 'active',
-      });
-      setToast({ msg: '⚡ ' + res.message, type: 'success' });
-    } catch (e: any) {
-      setToast({ msg: (e instanceof Error ? e.message : 'Error al enviar pulso a Supabase'), type: 'error' });
-    } finally {
-      setPulsingKeepAlive(false);
-    }
-  };
-
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
     open: boolean;
@@ -618,9 +579,6 @@ export default function DashboardClient({ profile }: Props) {
     fetchCasasData();
     fetchAllFollowUps();
     fetchProfiles();
-    if (profile.role === 'principal' || profile.role === 'admin') {
-      fetchKeepAliveStatus();
-    }
     // Auto-ping de fondo silencioso en navegador si hace más de 6 horas
     try {
       const lastPingTime = localStorage.getItem('last_keepalive_ping_client');
@@ -630,7 +588,7 @@ export default function DashboardClient({ profile }: Props) {
         fetch('/api/keepalive?source=browser_heartbeat').catch(() => {});
       }
     } catch {}
-  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps, profile.role, fetchKeepAliveStatus]);
+  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   useEffect(() => {
     if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'reports') {
@@ -642,10 +600,7 @@ export default function DashboardClient({ profile }: Props) {
     if (activeTab === 'reports' || activeTab === 'seguimiento') {
       fetchAllFollowUps();
     }
-    if (activeTab === 'users') {
-      fetchKeepAliveStatus();
-    }
-  }, [activeTab, fetchProfiles, fetchCasasData, fetchAllFollowUps, fetchKeepAliveStatus]);
+  }, [activeTab, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
   const lastActivityRecordedRef = useRef<number>(0);
@@ -3034,115 +2989,6 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
-            {/* Card de Mantenimiento y Prevención de Pausa en Supabase */}
-            <div
-              className="card"
-              style={{
-                marginBottom: '1.5rem',
-                background: 'linear-gradient(135deg, rgba(20, 20, 20, 0.95), rgba(30, 26, 18, 0.85))',
-                border: '1px solid rgba(201, 168, 76, 0.3)',
-                borderRadius: '12px',
-                padding: '1.25rem',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '10px',
-                    background: 'rgba(201, 168, 76, 0.15)',
-                    border: '1px solid var(--border-gold)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--gold-primary)',
-                  }}>
-                    <Database size={20} />
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        Mantenimiento de Base de Datos (Supabase Keep-Alive)
-                      </h3>
-                      <span
-                        className="badge"
-                        style={{
-                          background: keepAliveData?.last_ping ? 'rgba(16, 185, 129, 0.15)' : 'rgba(234, 179, 8, 0.15)',
-                          color: keepAliveData?.last_ping ? '#10b981' : '#eab308',
-                          border: keepAliveData?.last_ping ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(234, 179, 8, 0.3)',
-                          fontSize: '0.7rem',
-                          padding: '0.15rem 0.5rem',
-                        }}
-                      >
-                        {keepAliveData?.last_ping ? '🟢 Base de Datos Activa' : '🟡 Pulso Pendiente'}
-                      </span>
-                    </div>
-                    <p className="text-secondary" style={{ margin: '0.2rem 0 0', fontSize: '0.8rem' }}>
-                      Evita automáticamente que la capa gratuita de Supabase se pause por los 7 días de inactividad.
-                    </p>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    onClick={() => handleTriggerKeepAlive('dashboard_manual')}
-                    disabled={pulsingKeepAlive}
-                    className="btn btn-primary"
-                    style={{ gap: '0.4rem', fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
-                    title="Enviar consulta de mantenimiento a Supabase ahora"
-                  >
-                    {pulsingKeepAlive ? (
-                      <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                    ) : (
-                      <Zap size={14} />
-                    )}
-                    {pulsingKeepAlive ? 'Enviando pulso...' : 'Registrar Pulso Ahora'}
-                  </button>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '0.75rem',
-                  padding: '0.75rem 1rem',
-                  background: 'rgba(0, 0, 0, 0.25)',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
-                }}
-              >
-                <div>
-                  <span className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Último Registro de Hora
-                  </span>
-                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {keepAliveData?.last_ping ? formatearFechaInteraccion(keepAliveData.last_ping) : 'Sin registros aún'}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Pulsos Guardados en BD
-                  </span>
-                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold-primary)' }}>
-                    {keepAliveData?.ping_count ? `${keepAliveData.ping_count} pulsos registrados` : '0 pulsos'}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Origen del Pulso
-                  </span>
-                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    {keepAliveData?.source || 'Sistema en segundo plano'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
             <div
               style={{
                 display: 'flex',
