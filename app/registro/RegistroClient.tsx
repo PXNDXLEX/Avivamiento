@@ -708,10 +708,10 @@ export default function RegistroClient({ profile }: Props) {
                   </div>
                   <div>
                     <p style={{ fontWeight: 700, color: 'var(--gold-primary)', fontSize: '1rem', margin: 0 }}>
-                      ¡Tienes {pendingConsolidation.length} persona{pendingConsolidation.length > 1 ? 's' : ''} asignada{pendingConsolidation.length > 1 ? 's' : ''} para seguimiento!
+                      ¡Tienes {pendingConsolidation.length} {pendingConsolidation.length === 1 ? 'persona pendiente' : 'personas pendientes'} de seguimiento!
                     </p>
                     <p className="text-secondary" style={{ fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
-                      El administrador te ha asignado nuevos miembros para su consolidación y llamada.
+                      Recuerda realizar llamadas, visitas o mensajes de acompañamiento para su proceso de consolidación.
                     </p>
                   </div>
                 </div>
@@ -720,7 +720,7 @@ export default function RegistroClient({ profile }: Props) {
                   className="btn btn-primary"
                   style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
                 >
-                  Ver Asignaciones →
+                  Ver Seguimientos →
                 </button>
               </div>
             )}
@@ -1076,7 +1076,7 @@ export default function RegistroClient({ profile }: Props) {
                     borderRadius: '8px',
                   }}
                 >
-                  <option value="mine">Todos mis asignados ({myMembers.length})</option>
+                  <option value="mine">Todos mis miembros ({myMembers.length})</option>
                   <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
                   <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
                 </select>
