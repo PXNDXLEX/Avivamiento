@@ -79,6 +79,18 @@ export default function RegistroClient({ profile }: Props) {
   const [showFormModal, setShowFormModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'list' | 'seguimiento'>('home');
 
+  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear la ficha abierta para regresar siempre al menú principal de seguimiento */
+  useEffect(() => {
+    if (activeTab !== 'seguimiento') {
+      setSelectedFollowUpMember(null);
+    }
+  }, [activeTab]);
+
+  const handleTabClick = (tab: 'home' | 'list' | 'seguimiento') => {
+    setSelectedFollowUpMember(null);
+    setActiveTab(tab);
+  };
+
   const [singleCasaId, setSingleCasaId] = useState<string | null>(null);
 
   /* Toast */
@@ -577,7 +589,7 @@ export default function RegistroClient({ profile }: Props) {
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
           <button 
-            onClick={() => setActiveTab('home')}
+            onClick={() => handleTabClick('home')}
             className={`btn ${activeTab === 'home' ? 'btn-primary' : 'btn-secondary'}`} 
             style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}
           >
@@ -585,7 +597,7 @@ export default function RegistroClient({ profile }: Props) {
             Inicio
           </button>
           <button 
-            onClick={() => setActiveTab('list')}
+            onClick={() => handleTabClick('list')}
             className={`btn ${activeTab === 'list' ? 'btn-primary' : 'btn-secondary'}`} 
             style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}
           >
@@ -610,7 +622,7 @@ export default function RegistroClient({ profile }: Props) {
             )}
           </button>
           <button 
-            onClick={() => setActiveTab('seguimiento')}
+            onClick={() => handleTabClick('seguimiento')}
             className={`btn ${activeTab === 'seguimiento' ? 'btn-primary' : 'btn-secondary'}`} 
             style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}
           >
@@ -728,7 +740,7 @@ export default function RegistroClient({ profile }: Props) {
                   </div>
                 </div>
                 <button
-                  onClick={() => setActiveTab('seguimiento')}
+                  onClick={() => handleTabClick('seguimiento')}
                   className="btn btn-primary"
                   style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
                 >
@@ -1248,21 +1260,21 @@ export default function RegistroClient({ profile }: Props) {
       {/* ── Bottom Navigation (Mobile Only) ── */}
       <nav className="bottom-nav hide-on-desktop">
         <div 
-          onClick={() => setActiveTab('home')}
+          onClick={() => handleTabClick('home')}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'home' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
         >
           <Home size={20} />
           <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Inicio</span>
         </div>
         <div 
-          onClick={() => setActiveTab('list')}
+          onClick={() => handleTabClick('list')}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'list' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
         >
           <Users size={20} />
           <span style={{ fontSize: '0.65rem', fontWeight: 600 }}>Registros</span>
         </div>
         <div 
-          onClick={() => setActiveTab('seguimiento')}
+          onClick={() => handleTabClick('seguimiento')}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', color: activeTab === 'seguimiento' ? 'var(--gold-primary)' : 'var(--text-muted)', cursor: 'pointer' }}
         >
           <Phone size={20} />

@@ -1292,6 +1292,18 @@ export default function DashboardClient({ profile }: Props) {
     }
   }, [profile.role, activeTab]);
 
+  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear la ficha abierta para regresar siempre al menú principal de seguimiento */
+  useEffect(() => {
+    if (activeTab !== 'seguimiento') {
+      setSelectedFollowUpMember(null);
+    }
+  }, [activeTab]);
+
+  const handleTabClick = (tabKey: ActiveTab) => {
+    setSelectedFollowUpMember(null);
+    setActiveTab(tabKey);
+  };
+
   /* ══════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════ */
@@ -1377,7 +1389,7 @@ export default function DashboardClient({ profile }: Props) {
 
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)} className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`} style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}>
+            <button key={t.key} onClick={() => handleTabClick(t.key)} className={`btn ${activeTab === t.key ? 'btn-primary' : 'btn-secondary'}`} style={{ justifyContent: 'flex-start', padding: '0.75rem 1rem' }}>
               {t.icon}
               {t.label}
             </button>
@@ -3977,7 +3989,7 @@ export default function DashboardClient({ profile }: Props) {
         {tabs.map((t) => (
           <div
             key={t.key}
-            onClick={() => setActiveTab(t.key)}
+            onClick={() => handleTabClick(t.key)}
             style={{
               display: 'flex',
               flexDirection: 'column',
