@@ -866,7 +866,11 @@ export default function DashboardClient({ profile }: Props) {
     return profiles
       .map((p) => {
         const userFollowUps = filteredFollowUps.filter(
-          (f) => f.user_id === p.id || f.user_name?.toLowerCase() === p.full_name?.toLowerCase()
+          (f) =>
+            f.user_id === p.id ||
+            (f.user_name &&
+              (f.user_name.toLowerCase() === p.full_name?.toLowerCase() ||
+                f.user_name.toLowerCase() === p.username?.toLowerCase()))
         );
         const llamadas = userFollowUps.filter((f) => f.type === 'llamada').length;
         const visitas = userFollowUps.filter((f) => f.type === 'visita').length;
@@ -886,9 +890,13 @@ export default function DashboardClient({ profile }: Props) {
           role: p.role,
           lastSeenAt: p.last_seen_at,
           llamadas,
+          Llamadas: llamadas,
           visitas,
+          Visitas: visitas,
           mensajes,
+          Mensajes: mensajes,
           total,
+          Total: total,
           assignedCount,
           consolidatedCount,
           conversionRate,
