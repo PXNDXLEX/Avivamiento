@@ -1,0 +1,67 @@
+name: Supabase Keep-Alive (Prevención de Pausa)
+
+# ==============================================================
+# Este flujo de trabajo se ejecuta automáticamente dos veces al día
+# para realizar consultas a Supabase y evitar que el proyecto en la
+# capa gratuita se pause tras 7 días de inactividad.
+# ==============================================================
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 06:00 y 18:00 UTC (dos veces al día)
+    - cron: '0 6,18 * * *'
+  workflow_dispatch: # Permite ejecución manual desde la pestaña Actions de GitHub
+
+jobs:
+  ping-supabase:
+    name: Pulso de Actividad Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Enviar Pulso al Endpoint de la Aplicación
+        run: |
+          echo "=========================================================="
+          echo "Iniciando pulso de actividad para mantener Supabase activo"
+          echo "Fecha UTC: $(date -u)"
+          echo "=========================================================="
+
+          # 1. Si existe la URL de la app desplegada (ej: en Vercel)
+          if [ -n "${{ secrets.APP_URL }}" ]; then
+            echo "Conectando al endpoint de la aplicación: ${{ secrets.APP_URL }}/api/keepalive"
+            HTTP_STATUS=$(curl -s -o /tmp/app_response.json -w "%{http_code}" "${{ secrets.APP_URL }}/api/keepalive?source=github_actions")
+            echo "Código HTTP de respuesta: $HTTP_STATUS"
+            cat /tmp/app_response.json
+            echo ""
+          else
+            echo "APP_URL no configurada en los secretos de GitHub (opcional)."
+          fi
+
+          # 2. Si existen las credenciales directas de Supabase en los secretos de GitHub
+          if [ -n "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" ] && [ -n "${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" ]; then
+            echo "Enviando consulta directa a la API REST de Supabase..."
+            SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}"
+            ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}"
+
+            HTTP_CODE=$(curl -s -o /tmp/supabase_response.json -w "%{http_code}" \
+              -X GET "${SUPABASE_URL}/rest/v1/system_keepalive?select=*&limit=1" \
+              -H "apikey: ${ANON_KEY}" \
+              -H "Authorization: Bearer ${ANON_KEY}")
+
+            echo "Respuesta de Supabase (system_keepalive): $HTTP_CODE"
+
+            # Consulta adicional a house_groups como respaldo garantizado
+            curl -s -o /dev/null \
+              -X GET "${SUPABASE_URL}/rest/v1/house_groups?select=id&limit=1" \
+              -H "apikey: ${ANON_KEY}" \
+              -H "Authorization: Bearer ${ANON_KEY}"
+
+            echo "Consulta directa a Supabase completada con éxito."
+          else
+            echo "NEXT_PUBLIC_SUPABASE_URL y/o NEXT_PUBLIC_SUPABASE_ANON_KEY no están en los secretos del repositorio de GitHub."
+            echo "Consejo: Agrega APP_URL o NEXT_PUBLIC_SUPABASE_URL en Settings > Secrets and variables > Actions de tu repositorio."
+          fi
+
+          echo "=========================================================="
+          echo "Pulso de actividad finalizado exitosamente."
+          echo "=========================================================="

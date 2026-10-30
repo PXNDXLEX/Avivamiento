@@ -88,3 +88,13 @@ export interface MemberFollowUp {
   date: string;
   created_at: string;
 }
+
+export interface SystemKeepalive {
+  id: string;
+  last_ping: string;
+  ping_count: number;
+  source: string;
+  status: string;
+  updated_at: string;
+}
+
