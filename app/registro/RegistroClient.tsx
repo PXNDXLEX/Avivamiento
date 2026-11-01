@@ -55,7 +55,7 @@ export default function RegistroClient({ profile }: Props) {
 
   /* Follow-up state */
   const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
-  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'pending' | 'consolidated'>('mine');
+  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'pending' | 'consolidated' | 'inactivo'>('mine');
   const [seguimientoSearch, setSeguimientoSearch] = useState('');
 
   /* Form */
@@ -237,6 +237,7 @@ export default function RegistroClient({ profile }: Props) {
     Reconciliado: 'badge-reconciliado',
     Visitante: 'badge-visitante',
     Consolidado: 'badge-consolidado',
+    Inactivo: 'badge-inactivo',
   };
 
   const myMembers = members.filter((m) => m.consolidator_id === profile.id);
@@ -259,9 +260,12 @@ export default function RegistroClient({ profile }: Props) {
     reconciliado: myMembers.filter((m) => m.status === 'Reconciliado').length,
     visitante: myMembers.filter((m) => m.status === 'Visitante').length,
     consolidado: myMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    inactivo: myMembers.filter((m) => m.status === 'Inactivo').length,
   };
 
-  const pendingConsolidation = myMembers.filter((m) => !m.is_consolidated);
+  const pendingConsolidation = myMembers.filter(
+    (m) => m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo'
+  );
 
   const seguimientoList = myMembers.filter((m) => {
     if (seguimientoSearch.trim()) {
@@ -274,9 +278,11 @@ export default function RegistroClient({ profile }: Props) {
     }
 
     if (seguimientoFilter === 'pending') {
-      return m.status !== 'Consolidado' && !m.is_consolidated;
+      return m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo';
     } else if (seguimientoFilter === 'consolidated') {
       return m.status === 'Consolidado' || m.is_consolidated;
+    } else if (seguimientoFilter === 'inactivo') {
+      return m.status === 'Inactivo';
     }
     return true; // 'mine': todos sus miembros asignados
   });
@@ -345,14 +351,23 @@ export default function RegistroClient({ profile }: Props) {
           {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
           {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
           {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+          {form.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-          {[
-            { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-            { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-            { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-            { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-          ].map((st) => {
+          {(editingId
+            ? [
+                { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+                { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
+              ]
+            : [
+                { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+              ]
+          ).map((st) => {
             const isSel = form.status === st.key;
             return (
               <button
@@ -756,12 +771,13 @@ export default function RegistroClient({ profile }: Props) {
                 <span>Nuevo Miembro</span>
               </button>
             </div>
-            <div className="grid-5">
+            <div className="grid-6">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
               <StatCard label="Reconciliados" value={stats.reconciliado} color="var(--color-reconciliado)" />
               <StatCard label="Visitantes" value={stats.visitante} color="var(--color-visitante)" />
               <StatCard label="Consolidados" value={stats.consolidado} color="#10b981" />
+              <StatCard label="Inactivos" value={stats.inactivo} color="var(--color-inactivo)" />
             </div>
           </div>
         )}
@@ -1098,6 +1114,7 @@ export default function RegistroClient({ profile }: Props) {
                   <option value="mine">Todos mis miembros ({myMembers.length})</option>
                   <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
                   <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
+                  <option value="inactivo">Inactivos ({stats.inactivo})</option>
                 </select>
               </div>
 

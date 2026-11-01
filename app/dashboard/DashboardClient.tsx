@@ -73,6 +73,7 @@ const STATUS_COLORS: Record<string, string> = {
   Reconciliado: 'var(--color-reconciliado)',
   Visitante: 'var(--color-visitante)',
   Consolidado: '#10b981',
+  Inactivo: 'var(--color-inactivo)',
 };
 
 const CASA_COLORS = [
@@ -343,7 +344,7 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -755,6 +756,7 @@ export default function DashboardClient({ profile }: Props) {
     reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
     visitante: members.filter((m) => m.status === 'Visitante').length,
     consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    inactivo: members.filter((m) => m.status === 'Inactivo').length,
   };
 
   const statusChartData = [
@@ -773,6 +775,11 @@ export default function DashboardClient({ profile }: Props) {
       name: 'Consolidados',
       value: stats.consolidado,
       color: STATUS_COLORS.Consolidado,
+    },
+    {
+      name: 'Inactivos',
+      value: stats.inactivo,
+      color: STATUS_COLORS.Inactivo,
     },
   ];
 
@@ -1272,7 +1279,11 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Tabs config ── */
   const tabs = profile.role === 'pastor' ? [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
+    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
+    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
   ] : profile.role === 'user' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
@@ -1446,140 +1457,14 @@ export default function DashboardClient({ profile }: Props) {
                 <span>Nuevo Miembro</span>
               </button>
             </div>
-            <div className="grid-5" style={{ marginBottom: '2rem' }}>
+            <div className="grid-6" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
               <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
               <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
+              <StatCard label="Inactivos" value={stats.inactivo} icon="⏸️" color={STATUS_COLORS.Inactivo} />
             </div>
-
-            {/* Casas de Dios y Asistencia en Vista Principal (solo admin, pastor y principal) */}
-            {profile.role !== 'user' && (
-              <div style={{ marginTop: '2.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                  <div>
-                    <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>
-                      Asistencia en Casas de Dios
-                    </h2>
-                    <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
-                      Historial comparativo de participantes por servicio realizado
-                    </p>
-                  </div>
-                  {casasTimelineData.length > 0 && (
-                    <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
-                      <button
-                        onClick={() => setCasasChartType('bar')}
-                        className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                      >
-                        Barras
-                      </button>
-                      <button
-                        onClick={() => setCasasChartType('line')}
-                        className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
-                      >
-                        Líneas
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Metricas Rápidas Casas */}
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
-                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
-                </div>
-
-                {/* Attendance Chart - Por Casa y Fecha */}
-                <div className="card" style={{ padding: '1.5rem' }}>
-                  {houseGroups.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 0' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
-                    </div>
-                  ) : casasTimelineData.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
-                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                        Sin registros de servicios con fecha aún
-                      </p>
-                      <p style={{ fontSize: '0.85rem' }}>
-                        No hay registros de actividades o servicios registrados para este período.
-                      </p>
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height={320}>
-                      {casasChartType === 'bar' ? (
-                        <BarChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Bar
-                              key={hg.id}
-                              dataKey={hg.name}
-                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
-                              radius={[4, 4, 0, 0]}
-                            />
-                          ))}
-                        </BarChart>
-                      ) : (
-                        <LineChart data={casasTimelineData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border-gold)',
-                              borderRadius: '8px',
-                              color: 'var(--text-primary)',
-                              fontSize: '0.85rem',
-                            }}
-                          />
-                          <Legend
-                            formatter={(value) => (
-                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                {value}
-                              </span>
-                            )}
-                          />
-                          {houseGroups.map((hg, idx) => (
-                            <Line
-                              key={hg.id}
-                              type="monotone"
-                              dataKey={hg.name}
-                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
-                              strokeWidth={2.5}
-                              dot={{ r: 4 }}
-                              activeDot={{ r: 6 }}
-                            />
-                          ))}
-                        </LineChart>
-                      )}
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1631,7 +1516,7 @@ export default function DashboardClient({ profile }: Props) {
               }}
             >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
+                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado', 'Inactivo'].map((s) => (
                   <button
                     key={s}
                     onClick={() => setFilterStatus(s)}
@@ -2246,6 +2131,7 @@ export default function DashboardClient({ profile }: Props) {
                   <option value="Nuevo">Nuevos</option>
                   <option value="Reconciliado">Reconciliados</option>
                   <option value="Visitante">Visitantes</option>
+                  <option value="Inactivo">Inactivos</option>
                 </select>
               </div>
 
@@ -3706,14 +3592,23 @@ export default function DashboardClient({ profile }: Props) {
                 {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
                 {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
                 {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-                {[
-                  { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-                  { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-                  { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-                  { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                ].map((st) => {
+                {(memberModal.member
+                  ? [
+                      { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                      { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                      { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                      { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+                      { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
+                    ]
+                  : [
+                      { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                      { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                      { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                    ]
+                ).map((st) => {
                   const isSel = memberForm.status === st.key;
                   return (
                     <button

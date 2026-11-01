@@ -696,6 +696,7 @@ export default function MemberFollowUpSheet({
                   <option value="Reconciliado">Reconciliado</option>
                   <option value="Visitante">Visitante</option>
                   <option value="Consolidado">Consolidado</option>
+                  <option value="Inactivo">Inactivo</option>
                 </select>
               </div>
             </div>

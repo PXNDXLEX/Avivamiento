@@ -26,6 +26,8 @@ export interface Profile {
   last_seen_at?: string | null;
 }
 
+export type MemberStatus = 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado' | 'Inactivo';
+
 export interface Member {
   id: string;
   full_name: string;
@@ -34,7 +36,7 @@ export interface Member {
   municipio: string | null;
   address: string | null;
   phone: string | null;
-  status: 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado';
+  status: MemberStatus;
   house_group_id: string | null;
   consolidator_id: string | null;
   consolidator_name: string;

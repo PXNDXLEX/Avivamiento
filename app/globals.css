@@ -33,6 +33,7 @@
   --color-nuevo: #2ecc71;
   --color-reconciliado: #3498db;
   --color-visitante: #C9A84C;
+  --color-inactivo: #94a3b8;
 
   --shadow-gold: 0 0 20px rgba(201, 168, 76, 0.2);
   --shadow-gold-strong: 0 0 40px rgba(201, 168, 76, 0.4);
@@ -88,6 +89,7 @@ html.light {
   --color-nuevo: #15803d;
   --color-reconciliado: #1d4ed8;
   --color-visitante: #b45309;
+  --color-inactivo: #64748b;
 
   --shadow-gold: 0 4px 15px rgba(181, 143, 59, 0.15);
   --shadow-gold-strong: 0 4px 25px rgba(181, 143, 59, 0.3);
@@ -490,6 +492,12 @@ html.light .verse-banner .verse-ref {
   border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
+.badge-inactivo {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
 .badge-admin {
   background: rgba(201, 168, 76, 0.15);
   color: var(--gold-primary);
@@ -531,6 +539,12 @@ html.light .badge-consolidado {
   background: rgba(16, 185, 129, 0.15);
   color: #047857;
   border-color: rgba(16, 185, 129, 0.4);
+}
+
+html.light .badge-inactivo {
+  background: rgba(100, 116, 139, 0.12);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.35);
 }
 
 html.light .badge-admin,
@@ -726,9 +740,15 @@ tbody tr:last-child {
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
 .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; }
+.grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; }
+
+@media (max-width: 1200px) {
+  .grid-6 { grid-template-columns: repeat(3, 1fr); }
+}
 
 @media (max-width: 1024px) {
   .grid-5 { grid-template-columns: repeat(3, 1fr); }
+  .grid-6 { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 768px) {
@@ -736,11 +756,13 @@ tbody tr:last-child {
   .grid-3 { grid-template-columns: 1fr; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
   .grid-5 { grid-template-columns: repeat(2, 1fr); }
+  .grid-6 { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 480px) {
   .grid-4 { grid-template-columns: 1fr; }
   .grid-5 { grid-template-columns: 1fr; }
+  .grid-6 { grid-template-columns: 1fr; }
 }
 
 /* ========================================
