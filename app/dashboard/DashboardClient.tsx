@@ -352,7 +352,7 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -1338,6 +1338,7 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Tabs config ── */
   const tabs = profile.role === 'pastor' ? [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
   ] : profile.role === 'user' ? [
@@ -1366,8 +1367,8 @@ export default function DashboardClient({ profile }: Props) {
     if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
       setActiveTab('home');
     }
-    if (profile.role === 'pastor' && activeTab !== 'reports' && activeTab !== 'equipo') {
-      setActiveTab('reports');
+    if (profile.role === 'pastor' && activeTab !== 'home' && activeTab !== 'reports' && activeTab !== 'equipo') {
+      setActiveTab('home');
     }
   }, [profile.role, activeTab]);
 
@@ -3780,23 +3781,35 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
 
-              {/* Lista de Líderes */}
+              {/* Liderazgo y Pastoral */}
               <div className="card" style={{ padding: '1.5rem' }}>
                 <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
-                  Lista de Líderes
+                  Liderazgo y Pastoral
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {houseGroups.map(hg => {
-                    const leader = profiles.find(p => p.id === hg.leader_id);
-                    return (
-                      <div key={hg.id} style={{ display: 'flex', flexDirection: 'column', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{leader ? leader.full_name : 'Sin líder asignado'}</p>
-                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{hg.name} • {hg.municipio || 'Sin municipio'}</p>
+                  {profiles.filter(p => p.role !== 'user').map(p => (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div className="avatar-placeholder" style={{ width: 32, height: 32 }}>
+                        {p.full_name.charAt(0).toUpperCase()}
                       </div>
-                    );
-                  })}
-                  {houseGroups.length === 0 && (
-                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay Casas de Dios registradas.</p>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0 }}>{p.full_name}</p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                          <span className={`badge badge-${p.role}`} style={{ fontSize: '0.62rem' }}>{ROLE_LABELS[p.role]}</span>
+                          {p.phone && <span className="text-muted" style={{ fontSize: '0.72rem' }}>{formatearTelefono(p.phone)}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {houseGroups.length > 0 && (
+                    <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--border-gold)', borderRadius: '8px', background: 'rgba(212, 175, 55, 0.05)' }}>
+                      <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--gold-primary)', margin: '0 0 0.2rem 0' }}>
+                        🏠 {houseGroups[0].name}
+                      </p>
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
+                        {houseGroups[0].address || 'Sede Principal'}{houseGroups[0].municipio ? ` • ${houseGroups[0].municipio}` : ''}
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
