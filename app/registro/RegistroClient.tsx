@@ -178,17 +178,19 @@ export default function RegistroClient({ profile }: Props) {
     }
 
     setSaving(true);
-    // Validación de formato de teléfono venezolano
-    if (form.phone && form.phone.trim()) {
+    // Validación de formato de teléfono venezolano (opcional: si no tiene número, se permite guardar en blanco)
+    const digitsOnly = form.phone ? form.phone.replace(/\D/g, '') : '';
+    let cleanPhone: string | null = null;
+
+    if (digitsOnly) {
       const phoneVal = validarTelefonoVenezolano(form.phone);
       if (!phoneVal.isValid) {
         setError(phoneVal.error || 'Número de teléfono inválido.');
         setSaving(false);
         return;
       }
+      cleanPhone = phoneVal.cleanPhone;
     }
-
-    const cleanPhone = form.phone && form.phone.trim() ? validarTelefonoVenezolano(form.phone).cleanPhone : null;
 
     const payload = {
       full_name: form.full_name.trim(),
@@ -430,7 +432,7 @@ export default function RegistroClient({ profile }: Props) {
 
       <div className="form-group">
         <label htmlFor="phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Teléfono</span>
+          <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
         </label>
         <input
@@ -438,9 +440,8 @@ export default function RegistroClient({ profile }: Props) {
           className="form-input"
           type="tel"
           inputMode="numeric"
-          pattern="[0-9]*"
           maxLength={11}
-          placeholder="Ej: 04141234567"
+          placeholder="Ej: 04141234567 (opcional)"
           value={form.phone}
           onChange={(e) => {
             const clean = limpiarTelefonoInput(e.target.value);
@@ -456,7 +457,11 @@ export default function RegistroClient({ profile }: Props) {
               : undefined,
           }}
         />
-        {form.phone && (
+        {!form.phone ? (
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+            Puedes dejar este campo en blanco si la persona no tiene teléfono.
+          </p>
+        ) : (
           <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
             {(() => {
               const val = validarTelefonoVenezolano(form.phone);

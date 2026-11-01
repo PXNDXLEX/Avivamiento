@@ -1037,20 +1037,21 @@ export default function DashboardClient({ profile }: Props) {
       return;
     }
 
-    if (memberForm.phone && memberForm.phone.trim()) {
+    // Validación de teléfono venezolano (opcional: si no tiene teléfono se permite guardar en blanco)
+    const digitsOnly = memberForm.phone ? memberForm.phone.replace(/\D/g, '') : '';
+    let cleanMemberPhone: string | null = null;
+
+    if (digitsOnly) {
       const phoneVal = validarTelefonoVenezolano(memberForm.phone);
       if (!phoneVal.isValid) {
         setMemberError(phoneVal.error || 'Número de teléfono inválido.');
         return;
       }
+      cleanMemberPhone = phoneVal.cleanPhone;
     }
 
     setSavingMember(true);
     setMemberError('');
-
-    const cleanMemberPhone = memberForm.phone && memberForm.phone.trim()
-      ? validarTelefonoVenezolano(memberForm.phone).cleanPhone
-      : null;
 
     const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
 
@@ -1150,18 +1151,20 @@ export default function DashboardClient({ profile }: Props) {
       setUserError('Usuario y nombre son requeridos para editar.');
       return;
     }
-    if (userForm.phone && userForm.phone.trim()) {
+    const userPhoneDigits = userForm.phone ? userForm.phone.replace(/\D/g, '') : '';
+    let cleanUserPhone = '';
+
+    if (userPhoneDigits) {
       const phoneVal = validarTelefonoVenezolano(userForm.phone);
       if (!phoneVal.isValid) {
         setUserError(phoneVal.error || 'Número de teléfono inválido.');
         return;
       }
+      cleanUserPhone = phoneVal.cleanPhone;
     }
+
     setSavingUser(true);
     setUserError('');
-    const cleanUserPhone = userForm.phone && userForm.phone.trim()
-      ? validarTelefonoVenezolano(userForm.phone).cleanPhone
-      : '';
     const userPayload = { ...userForm, phone: cleanUserPhone };
     try {
       if (userModal.userId) {
@@ -3722,7 +3725,7 @@ export default function DashboardClient({ profile }: Props) {
 
             <div className="form-group">
               <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Teléfono</span>
+                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
               </label>
               <input
@@ -3730,9 +3733,8 @@ export default function DashboardClient({ profile }: Props) {
                 className="form-input"
                 type="tel"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 maxLength={11}
-                placeholder="Ej: 04141234567"
+                placeholder="Ej: 04141234567 (opcional)"
                 value={memberForm.phone}
                 onChange={(e) => {
                   const clean = limpiarTelefonoInput(e.target.value);
@@ -3748,7 +3750,11 @@ export default function DashboardClient({ profile }: Props) {
                     : undefined,
                 }}
               />
-              {memberForm.phone && (
+              {!memberForm.phone ? (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                  Puedes dejar este campo en blanco si la persona no tiene teléfono.
+                </p>
+              ) : (
                 <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
                   {(() => {
                     const val = validarTelefonoVenezolano(memberForm.phone);
@@ -3855,7 +3861,7 @@ export default function DashboardClient({ profile }: Props) {
 
             <div className="form-group">
               <label htmlFor="user-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Teléfono</span>
+                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
               </label>
               <input
@@ -3863,9 +3869,8 @@ export default function DashboardClient({ profile }: Props) {
                 className="form-input"
                 type="tel"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 maxLength={11}
-                placeholder="Ej: 04141234567"
+                placeholder="Ej: 04141234567 (opcional)"
                 value={userForm.phone}
                 onChange={(e) => {
                   const clean = limpiarTelefonoInput(e.target.value);
@@ -3881,7 +3886,11 @@ export default function DashboardClient({ profile }: Props) {
                     : undefined,
                 }}
               />
-              {userForm.phone && (
+              {!userForm.phone ? (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                  Puedes dejar este campo en blanco si el usuario no tiene teléfono.
+                </p>
+              ) : (
                 <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
                   {(() => {
                     const val = validarTelefonoVenezolano(userForm.phone);

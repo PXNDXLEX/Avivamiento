@@ -121,19 +121,30 @@ export function validarTelefonoVenezolano(phone?: string | null): ValidacionTele
   }
 
   const trimmed = phone.trim();
+  const digitsOnly = trimmed.replace(/\D/g, '');
+
+  // Si el campo está vacío o no contiene ningún dígito numérico, se considera en blanco (opcional y válido)
+  if (!digitsOnly) {
+    return {
+      isValid: true,
+      cleanPhone: '',
+      prefix: '',
+      isPrefixValid: true,
+    };
+  }
 
   // Verificar si contiene letras u otros caracteres no permitidos
   if (/[^\d\s\-\+\(\)]/.test(trimmed)) {
     return {
       isValid: false,
-      cleanPhone: trimmed.replace(/\D/g, ''),
+      cleanPhone: digitsOnly,
       prefix: '',
       isPrefixValid: false,
       error: 'El teléfono debe contener únicamente números.',
     };
   }
 
-  let digits = trimmed.replace(/\D/g, '');
+  let digits = digitsOnly;
 
   if (digits.startsWith('580') && digits.length >= 12) {
     digits = digits.slice(2);
