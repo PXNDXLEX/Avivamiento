@@ -356,6 +356,8 @@ export default function DashboardClient({ profile }: Props) {
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
+  const [membersSubTab, setMembersSubTab] = useState<'activos' | 'inactivos'>('activos');
+  const [seguimientoSubTab, setSeguimientoSubTab] = useState<'activos' | 'inactivos'>('activos');
 
   /* Follow-ups state for report */
   const [allFollowUps, setAllFollowUps] = useState<MemberFollowUp[]>([]);
@@ -682,11 +684,17 @@ export default function DashboardClient({ profile }: Props) {
   }, [profile.role, fetchProfiles]);
 
   /* ── Derived state ── */
-  const filteredMembers = members.filter((m) => {
-    // Si el rol es consolidador, NUNCA ver miembros ajenos
-    if (profile.role === 'user' && m.consolidator_id !== profile.id) {
-      return false;
+  const visibleMembersForUser = useMemo(() => {
+    if (profile.role === 'user') {
+      return members.filter((m) => m.consolidator_id === profile.id);
     }
+    return members;
+  }, [members, profile.role, profile.id]);
+
+  const filteredMembers = visibleMembersForUser.filter((m) => {
+    // Separación estricta por submenú
+    if (membersSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (membersSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
 
     const q = search.toLowerCase();
     const matchSearch =
@@ -694,9 +702,12 @@ export default function DashboardClient({ profile }: Props) {
       (m.municipio ?? '').toLowerCase().includes(q) ||
       (m.phone ?? '').toLowerCase().includes(q) ||
       (m.consolidator_name || '').toLowerCase().includes(q);
-    const matchStatus = filterStatus === 'all'
-      ? m.status !== 'Inactivo'
-      : m.status === filterStatus;
+
+    const matchStatus = membersSubTab === 'inactivos'
+      ? true
+      : filterStatus === 'all'
+        ? true
+        : m.status === filterStatus;
     
     // 2. Date filter
     let matchDate = true;
@@ -722,11 +733,10 @@ export default function DashboardClient({ profile }: Props) {
   });
 
   const seguimientoMembers: Member[] = useMemo(() => {
-    return members.filter((m) => {
-      // Si el rol es consolidador, NUNCA ver miembros ajenos
-      if (profile.role === 'user' && m.consolidator_id !== profile.id) {
-        return false;
-      }
+    return visibleMembersForUser.filter((m) => {
+      // Separación estricta por submenú
+      if (seguimientoSubTab === 'activos' && m.status === 'Inactivo') return false;
+      if (seguimientoSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
 
       const q = search.toLowerCase();
       const matchSearch =
@@ -746,32 +756,34 @@ export default function DashboardClient({ profile }: Props) {
         if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
       }
 
-      // Filtro por estatus
+      // En la pestaña de inactivos, no aplica filtro de estatus de activos
+      if (seguimientoSubTab === 'inactivos') {
+        return true;
+      }
+
+      // Filtro por estatus en activos
       if (seguimientoStatusFilter !== 'all') {
         if (seguimientoStatusFilter === 'pending') {
           if (m.is_consolidated || m.status === 'Inactivo') return false;
         } else if (seguimientoStatusFilter === 'consolidated') {
           if (!m.is_consolidated || m.status === 'Inactivo') return false;
-        } else if (seguimientoStatusFilter === 'inactivo') {
-          if (m.status !== 'Inactivo') return false;
         } else {
           if (m.status !== seguimientoStatusFilter) return false;
         }
-      } else {
-        if (m.status === 'Inactivo') return false;
       }
 
       return true;
     });
-  }, [members, search, profile.role, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter]);
+  }, [visibleMembersForUser, search, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter, seguimientoSubTab]);
 
   const stats = {
-    total: members.length,
-    nuevo: members.filter((m) => m.status === 'Nuevo').length,
-    reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
-    visitante: members.filter((m) => m.status === 'Visitante').length,
-    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
-    inactivo: members.filter((m) => m.status === 'Inactivo').length,
+    total: visibleMembersForUser.length,
+    active: visibleMembersForUser.filter((m) => m.status !== 'Inactivo').length,
+    nuevo: visibleMembersForUser.filter((m) => m.status === 'Nuevo').length,
+    reconciliado: visibleMembersForUser.filter((m) => m.status === 'Reconciliado').length,
+    visitante: visibleMembersForUser.filter((m) => m.status === 'Visitante').length,
+    consolidado: visibleMembersForUser.filter((m) => (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo').length,
+    inactivo: visibleMembersForUser.filter((m) => m.status === 'Inactivo').length,
   };
 
   const statusChartData = [
@@ -1520,6 +1532,66 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Members Tab ── */}
         {activeTab === 'members' && (
           <div className="animate-fade-in">
+            {/* Submenú de Miembros: Activos vs Inactivos */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.6rem',
+                marginBottom: '1.25rem',
+                borderBottom: '1px solid var(--border-gold)',
+                paddingBottom: '0.75rem',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMembersSubTab('activos');
+                  setFilterStatus('all');
+                }}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: membersSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                  color: membersSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                  border: membersSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <Users size={16} />
+                <span>Miembros Activos ({stats.active})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMembersSubTab('inactivos');
+                  setFilterStatus('all');
+                }}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: membersSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                  color: membersSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                  border: membersSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <PauseCircle size={16} />
+                <span>Inactivos / En Pausa ({stats.inactivo})</span>
+              </button>
+            </div>
+
             {/* Buscador optimizado de ancho completo */}
             <div style={{ marginBottom: '1.5rem', width: '100%' }}>
               <div style={{ position: 'relative', width: '100%' }}>
@@ -1538,7 +1610,11 @@ export default function DashboardClient({ profile }: Props) {
                   className="form-input"
                   id="member-search"
                   type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
+                  placeholder={
+                    membersSubTab === 'activos'
+                      ? "Búsqueda rápida de miembros activos por nombre, teléfono o municipio..."
+                      : "Búsqueda de miembros inactivos por nombre, teléfono o municipio..."
+                  }
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   style={{ 
@@ -1564,21 +1640,40 @@ export default function DashboardClient({ profile }: Props) {
               }}
             >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado', 'Inactivo'].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setFilterStatus(s)}
-                    className={`btn ${
-                      filterStatus === s ? 'btn-primary' : 'btn-secondary'
-                    }`}
+                {membersSubTab === 'activos' ? (
+                  ['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setFilterStatus(s)}
+                      className={`btn ${
+                        filterStatus === s ? 'btn-primary' : 'btn-secondary'
+                      }`}
+                      style={{
+                        padding: '0.55rem 0.85rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      {s === 'all' ? 'Todos' : s}
+                    </button>
+                  ))
+                ) : (
+                  <div
                     style={{
-                      padding: '0.55rem 0.85rem',
-                      fontSize: '0.8rem',
+                      padding: '0.5rem 0.85rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.12)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
                     }}
                   >
-                    {s === 'all' ? 'Todos (Activos)' : s === 'Inactivo' ? '⏸️ Inactivos' : s}
-                  </button>
-                ))}
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa o que dejaron de asistir</span>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2108,7 +2203,7 @@ export default function DashboardClient({ profile }: Props) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  marginBottom: '1.5rem',
+                  marginBottom: '1.25rem',
                   flexWrap: 'wrap',
                   gap: '1rem',
                 }}
@@ -2121,6 +2216,66 @@ export default function DashboardClient({ profile }: Props) {
                     Registra y consulta el histórico de llamadas, visitas presenciales y mensajes de seguimiento pastoral.
                   </p>
                 </div>
+              </div>
+
+              {/* Submenú de Seguimiento: Activos vs Inactivos */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.6rem',
+                  marginBottom: '1.25rem',
+                  borderBottom: '1px solid var(--border-gold)',
+                  paddingBottom: '0.75rem',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('activos');
+                    setSeguimientoStatusFilter('all');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <Phone size={16} />
+                  <span>Seguimiento Activo ({stats.active})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('inactivos');
+                    setSeguimientoStatusFilter('all');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <PauseCircle size={16} />
+                  <span>Inactivos / En Pausa ({stats.inactivo})</span>
+                </button>
               </div>
 
               {/* Filtros de Seguimiento */}
@@ -2148,7 +2303,11 @@ export default function DashboardClient({ profile }: Props) {
                   <input
                     className="form-input"
                     type="text"
-                    placeholder="Buscar por nombre, teléfono o municipio..."
+                    placeholder={
+                      seguimientoSubTab === 'activos'
+                        ? "Buscar miembros activos por nombre, teléfono o municipio..."
+                        : "Buscar miembros inactivos por nombre, teléfono o municipio..."
+                    }
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{
@@ -2177,7 +2336,9 @@ export default function DashboardClient({ profile }: Props) {
                       color: 'var(--text-primary)',
                     }}
                   >
-                    <option value="all">Todos los miembros</option>
+                    <option value="all">
+                      {seguimientoSubTab === 'activos' ? 'Todos los miembros activos' : 'Todos los miembros inactivos'}
+                    </option>
                     <option value="mine">Mis miembros asignados</option>
                     <option value="unassigned">Sin asignar</option>
                     {profiles.map((p) => (
@@ -2188,35 +2349,57 @@ export default function DashboardClient({ profile }: Props) {
                   </select>
                 )}
 
-                {/* Filtro por estatus de consolidación */}
-                <select
-                  className="form-select"
-                  value={seguimientoStatusFilter}
-                  onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
-                  style={{
-                    padding: '0.7rem 1rem',
-                    fontSize: '0.88rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <option value="all">👥 Todos los Activos</option>
-                  <option value="pending">⏳ Pendientes de Consolidar</option>
-                  <option value="consolidated">🛡️ Ya Consolidados</option>
-                  <option value="Nuevo">✨ Nuevos</option>
-                  <option value="Reconciliado">🕊️ Reconciliados</option>
-                  <option value="Visitante">🚶 Visitantes</option>
-                  <option value="inactivo">⏸️ Inactivos / En Pausa</option>
-                </select>
+                {/* Filtro por estatus de consolidación (solo en pestaña Activos) */}
+                {seguimientoSubTab === 'activos' ? (
+                  <select
+                    className="form-select"
+                    value={seguimientoStatusFilter}
+                    onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      fontSize: '0.88rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <option value="all">👥 Todos los miembros activos</option>
+                    <option value="pending">⏳ Pendientes de Consolidar</option>
+                    <option value="consolidated">🛡️ Ya Consolidados</option>
+                    <option value="Nuevo">✨ Nuevos</option>
+                    <option value="Reconciliado">🕊️ Reconciliados</option>
+                    <option value="Visitante">🚶 Visitantes</option>
+                  </select>
+                ) : (
+                  <div
+                    style={{
+                      padding: '0.65rem 1rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.1)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
+                    }}
+                  >
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa. Consulta su ficha o reactívalos con un seguimiento.</span>
+                  </div>
+                )}
               </div>
 
               <div className="card" style={{ padding: '1.5rem' }}>
                 {seguimientoMembers.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                     <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                    <p>No se encontraron miembros con los filtros seleccionados.</p>
+                    <p>
+                      {seguimientoSubTab === 'inactivos'
+                        ? 'No hay miembros inactivos o en pausa.'
+                        : 'No se encontraron miembros activos con los filtros seleccionados.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="table-wrapper">
@@ -2313,7 +2496,11 @@ export default function DashboardClient({ profile }: Props) {
                             </td>
                             <td>
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                                {member.is_consolidated ? (
+                                {member.status === 'Inactivo' ? (
+                                  <span className="badge badge-inactivo" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>
+                                    En Pausa
+                                  </span>
+                                ) : member.is_consolidated ? (
                                   <button
                                     onClick={() => toggleConsolidado(member)}
                                     className="btn btn-secondary"

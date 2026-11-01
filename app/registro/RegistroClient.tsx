@@ -24,6 +24,7 @@ import {
   Check,
   Phone,
   ClipboardList,
+  PauseCircle,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -53,9 +54,13 @@ export default function RegistroClient({ profile }: Props) {
   const [versiculo, setVersiculo] = useState({ texto: '', referencia: '' });
   const [mounted, setMounted] = useState(false);
 
+  /* Sub-tabs para separar activos e inactivos */
+  const [registrosSubTab, setRegistrosSubTab] = useState<'activos' | 'inactivos'>('activos');
+  const [seguimientoSubTab, setSeguimientoSubTab] = useState<'activos' | 'inactivos'>('activos');
+
   /* Follow-up state */
   const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
-  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'pending' | 'consolidated' | 'inactivo'>('mine');
+  const [seguimientoFilter, setSeguimientoFilter] = useState<'mine' | 'pending' | 'consolidated'>('mine');
   const [seguimientoSearch, setSeguimientoSearch] = useState('');
 
   /* Form */
@@ -245,8 +250,10 @@ export default function RegistroClient({ profile }: Props) {
   const myMembers = members.filter((m) => m.consolidator_id === profile.id);
 
   const filteredMembers = myMembers.filter((m) => {
-    // Excluir inactivos de la lista principal para no juntarlos con los activos a menos que se busque explícitamente
-    if (!search.trim() && m.status === 'Inactivo') return false;
+    // Separación estricta por submenú
+    if (registrosSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (registrosSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
+
     if (!search.trim()) return true;
     const q = search.toLowerCase().trim();
     return (
@@ -260,10 +267,11 @@ export default function RegistroClient({ profile }: Props) {
 
   const stats = {
     total: myMembers.length,
+    active: myMembers.filter((m) => m.status !== 'Inactivo').length,
     nuevo: myMembers.filter((m) => m.status === 'Nuevo').length,
     reconciliado: myMembers.filter((m) => m.status === 'Reconciliado').length,
     visitante: myMembers.filter((m) => m.status === 'Visitante').length,
-    consolidado: myMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    consolidado: myMembers.filter((m) => (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo').length,
     inactivo: myMembers.filter((m) => m.status === 'Inactivo').length,
   };
 
@@ -272,6 +280,10 @@ export default function RegistroClient({ profile }: Props) {
   );
 
   const seguimientoList = myMembers.filter((m) => {
+    // Separación estricta por submenú
+    if (seguimientoSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (seguimientoSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
+
     if (seguimientoSearch.trim()) {
       const q = seguimientoSearch.toLowerCase().trim();
       const match =
@@ -281,14 +293,16 @@ export default function RegistroClient({ profile }: Props) {
       if (!match) return false;
     }
 
+    if (seguimientoSubTab === 'inactivos') {
+      return true;
+    }
+
     if (seguimientoFilter === 'pending') {
       return m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo';
     } else if (seguimientoFilter === 'consolidated') {
       return (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo';
-    } else if (seguimientoFilter === 'inactivo') {
-      return m.status === 'Inactivo';
     }
-    return m.status !== 'Inactivo'; // 'mine': sólo miembros activos
+    return m.status !== 'Inactivo';
   });
 
   const renderForm = () => (
@@ -809,25 +823,83 @@ export default function RegistroClient({ profile }: Props) {
               </button>
             </div>
 
-              {/* Buscador en tiempo real */}
-              <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
-                <Search
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: '1rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Buscar por nombre, teléfono, municipio o estatus..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+            {/* Submenú de Registros: Activos vs Inactivos */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.6rem',
+                marginBottom: '1.25rem',
+                borderBottom: '1px solid var(--border-gold)',
+                paddingBottom: '0.75rem',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setRegistrosSubTab('activos')}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: registrosSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                  color: registrosSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                  border: registrosSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <Users size={16} />
+                <span>Mis Registros Activos ({stats.active})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRegistrosSubTab('inactivos')}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: registrosSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                  color: registrosSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                  border: registrosSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <PauseCircle size={16} />
+                <span>Inactivos / En Pausa ({stats.inactivo})</span>
+              </button>
+            </div>
+
+            {/* Buscador en tiempo real */}
+            <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: '1rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--gold-primary)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <input
+                className="form-input"
+                type="text"
+                placeholder={
+                  registrosSubTab === 'activos'
+                    ? "Buscar por nombre, teléfono, municipio o estatus..."
+                    : "Buscar miembros inactivos por nombre, teléfono o municipio..."
+                }
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                   style={{
                     padding: '0.65rem 2.2rem 0.65rem 2.5rem',
                     fontSize: '0.9rem',
@@ -980,7 +1052,25 @@ export default function RegistroClient({ profile }: Props) {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
                         <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
 
-                        {m.is_consolidated ? (
+                        {m.status === 'Inactivo' ? (
+                          <button
+                            onClick={() => setSelectedFollowUpMember(m)}
+                            className="btn btn-secondary"
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '0.3rem 0.65rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              color: '#9ca3af',
+                              borderColor: 'rgba(156, 163, 175, 0.4)',
+                            }}
+                            title="Ver ficha histórica o reactivar miembro"
+                          >
+                            <PauseCircle size={13} />
+                            En Pausa / Ficha
+                          </button>
+                        ) : m.is_consolidated ? (
                           <button
                             onClick={() => toggleConsolidado(m)}
                             className="badge"
@@ -1084,6 +1174,66 @@ export default function RegistroClient({ profile }: Props) {
                 </div>
               </div>
 
+              {/* Submenú de Seguimiento: Activos vs Inactivos */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.6rem',
+                  marginBottom: '1.25rem',
+                  borderBottom: '1px solid var(--border-gold)',
+                  paddingBottom: '0.75rem',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('activos');
+                    setSeguimientoFilter('mine');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <Phone size={16} />
+                  <span>Seguimiento Activo ({stats.active})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('inactivos');
+                    setSeguimientoFilter('mine');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <PauseCircle size={16} />
+                  <span>Inactivos / En Pausa ({stats.inactivo})</span>
+                </button>
+              </div>
+
               {/* Filtros */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ position: 'relative' }}>
@@ -1101,7 +1251,11 @@ export default function RegistroClient({ profile }: Props) {
                   <input
                     className="form-input"
                     type="text"
-                    placeholder="Buscar miembro o teléfono..."
+                    placeholder={
+                      seguimientoSubTab === 'activos'
+                        ? "Buscar miembro o teléfono..."
+                        : "Buscar miembro inactivo..."
+                    }
                     value={seguimientoSearch}
                     onChange={(e) => setSeguimientoSearch(e.target.value)}
                     style={{
@@ -1114,22 +1268,40 @@ export default function RegistroClient({ profile }: Props) {
                   />
                 </div>
 
-                <select
-                  className="form-select"
-                  value={seguimientoFilter}
-                  onChange={(e) => setSeguimientoFilter(e.target.value as any)}
-                  style={{
-                    padding: '0.65rem 1rem',
-                    fontSize: '0.85rem',
-                    background: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                  }}
-                >
-                  <option value="mine">Mis miembros activos ({myMembers.length - stats.inactivo})</option>
-                  <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
-                  <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
-                  <option value="inactivo">⏸️ Inactivos / En Pausa ({stats.inactivo})</option>
-                </select>
+                {seguimientoSubTab === 'activos' ? (
+                  <select
+                    className="form-select"
+                    value={seguimientoFilter}
+                    onChange={(e) => setSeguimientoFilter(e.target.value as any)}
+                    style={{
+                      padding: '0.65rem 1rem',
+                      fontSize: '0.85rem',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <option value="mine">Mis miembros activos ({stats.active})</option>
+                    <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
+                    <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
+                  </select>
+                ) : (
+                  <div
+                    style={{
+                      padding: '0.65rem 1rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.1)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
+                    }}
+                  >
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa asignados a ti</span>
+                  </div>
+                )}
               </div>
 
               {/* Members cards */}
@@ -1137,10 +1309,12 @@ export default function RegistroClient({ profile }: Props) {
                 <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
                   <Phone size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
                   <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
-                    No hay miembros en esta vista
+                    {seguimientoSubTab === 'inactivos' ? 'No tienes miembros inactivos' : 'No hay miembros en esta vista'}
                   </p>
                   <p style={{ fontSize: '0.82rem' }}>
-                    No tienes registros en este filtro. Puedes registrar un nuevo miembro para iniciar su seguimiento.
+                    {seguimientoSubTab === 'inactivos'
+                      ? 'No hay registros marcados como inactivos en tu lista.'
+                      : 'No tienes registros activos en este filtro.'}
                   </p>
                 </div>
               ) : (
