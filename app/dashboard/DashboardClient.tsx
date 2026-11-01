@@ -61,6 +61,7 @@ import {
   TrendingUp,
   Clock,
   Eye,
+  PauseCircle,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -117,6 +118,12 @@ const FOLLOW_UP_TYPE_CONFIG: Record<
     icon: FileText,
     color: '#8b5cf6',
     bg: 'rgba(139, 92, 246, 0.15)',
+  },
+  inactivo: {
+    label: 'Inactivo',
+    icon: PauseCircle,
+    color: '#94a3b8',
+    bg: 'rgba(148, 163, 184, 0.15)',
   },
 };
 
@@ -345,7 +352,7 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -687,7 +694,9 @@ export default function DashboardClient({ profile }: Props) {
       (m.municipio ?? '').toLowerCase().includes(q) ||
       (m.phone ?? '').toLowerCase().includes(q) ||
       (m.consolidator_name || '').toLowerCase().includes(q);
-    const matchStatus = filterStatus === 'all' || m.status === filterStatus;
+    const matchStatus = filterStatus === 'all'
+      ? m.status !== 'Inactivo'
+      : m.status === filterStatus;
     
     // 2. Date filter
     let matchDate = true;
@@ -740,12 +749,16 @@ export default function DashboardClient({ profile }: Props) {
       // Filtro por estatus
       if (seguimientoStatusFilter !== 'all') {
         if (seguimientoStatusFilter === 'pending') {
-          if (m.is_consolidated) return false;
+          if (m.is_consolidated || m.status === 'Inactivo') return false;
         } else if (seguimientoStatusFilter === 'consolidated') {
-          if (!m.is_consolidated) return false;
+          if (!m.is_consolidated || m.status === 'Inactivo') return false;
+        } else if (seguimientoStatusFilter === 'inactivo') {
+          if (m.status !== 'Inactivo') return false;
         } else {
           if (m.status !== seguimientoStatusFilter) return false;
         }
+      } else {
+        if (m.status === 'Inactivo') return false;
       }
 
       return true;
@@ -1313,9 +1326,8 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Tabs config ── */
   const tabs = profile.role === 'pastor' ? [
-    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
-    { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
   ] : profile.role === 'user' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
@@ -1342,8 +1354,8 @@ export default function DashboardClient({ profile }: Props) {
     if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
       setActiveTab('home');
     }
-    if (profile.role === 'pastor' && activeTab !== 'home' && activeTab !== 'members' && activeTab !== 'reports') {
-      setActiveTab('home');
+    if (profile.role === 'pastor' && activeTab !== 'reports' && activeTab !== 'equipo') {
+      setActiveTab('reports');
     }
   }, [profile.role, activeTab]);
 
@@ -1564,7 +1576,7 @@ export default function DashboardClient({ profile }: Props) {
                       fontSize: '0.8rem',
                     }}
                   >
-                    {s === 'all' ? 'Todos' : s}
+                    {s === 'all' ? 'Todos (Activos)' : s === 'Inactivo' ? '⏸️ Inactivos' : s}
                   </button>
                 ))}
               </div>
@@ -1842,7 +1854,18 @@ export default function DashboardClient({ profile }: Props) {
                   </thead>
                   <tbody>
                     {filteredMembers.map((member) => (
-                      <tr key={member.id}>
+                      <tr
+                        key={member.id}
+                        style={
+                          member.status === 'Inactivo'
+                            ? {
+                                opacity: 0.55,
+                                filter: 'grayscale(0.6)',
+                                background: 'rgba(255, 255, 255, 0.02)',
+                              }
+                            : undefined
+                        }
+                      >
                         <td>
                           <div
                             style={{
@@ -2179,13 +2202,13 @@ export default function DashboardClient({ profile }: Props) {
                     color: 'var(--text-primary)',
                   }}
                 >
-                  <option value="all">Todos los estados</option>
-                  <option value="pending">Pendientes de Consolidar</option>
-                  <option value="consolidated">Ya Consolidados</option>
-                  <option value="Nuevo">Nuevos</option>
-                  <option value="Reconciliado">Reconciliados</option>
-                  <option value="Visitante">Visitantes</option>
-                  <option value="Inactivo">Inactivos</option>
+                  <option value="all">👥 Todos los Activos</option>
+                  <option value="pending">⏳ Pendientes de Consolidar</option>
+                  <option value="consolidated">🛡️ Ya Consolidados</option>
+                  <option value="Nuevo">✨ Nuevos</option>
+                  <option value="Reconciliado">🕊️ Reconciliados</option>
+                  <option value="Visitante">🚶 Visitantes</option>
+                  <option value="inactivo">⏸️ Inactivos / En Pausa</option>
                 </select>
               </div>
 
@@ -2211,7 +2234,18 @@ export default function DashboardClient({ profile }: Props) {
                       </thead>
                       <tbody>
                         {seguimientoMembers.map((member: Member) => (
-                          <tr key={member.id}>
+                          <tr
+                            key={member.id}
+                            style={
+                              member.status === 'Inactivo'
+                                ? {
+                                    opacity: 0.55,
+                                    filter: 'grayscale(0.6)',
+                                    background: 'rgba(255, 255, 255, 0.02)',
+                                  }
+                                : undefined
+                            }
+                          >
                             <td>
                               <div
                                 onClick={() => setSelectedFollowUpMember(member)}
@@ -3692,7 +3726,6 @@ export default function DashboardClient({ profile }: Props) {
                           { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
                           { key: 'Visitante', label: 'Visitante', icon: '🚶' },
                           { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                          { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
                         ]
                       : [
                           { key: 'Nuevo', label: 'Nuevo', icon: '✨' },

@@ -75,7 +75,7 @@ export interface Attendance {
   created_at: string;
 }
 
-export type FollowUpType = 'llamada' | 'visita' | 'mensaje' | 'otro';
+export type FollowUpType = 'llamada' | 'visita' | 'mensaje' | 'otro' | 'inactivo';
 
 export interface MemberFollowUp {
   id: string;

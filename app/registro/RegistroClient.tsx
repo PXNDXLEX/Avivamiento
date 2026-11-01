@@ -245,6 +245,8 @@ export default function RegistroClient({ profile }: Props) {
   const myMembers = members.filter((m) => m.consolidator_id === profile.id);
 
   const filteredMembers = myMembers.filter((m) => {
+    // Excluir inactivos de la lista principal para no juntarlos con los activos a menos que se busque explícitamente
+    if (!search.trim() && m.status === 'Inactivo') return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase().trim();
     return (
@@ -282,11 +284,11 @@ export default function RegistroClient({ profile }: Props) {
     if (seguimientoFilter === 'pending') {
       return m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo';
     } else if (seguimientoFilter === 'consolidated') {
-      return m.status === 'Consolidado' || m.is_consolidated;
+      return (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo';
     } else if (seguimientoFilter === 'inactivo') {
       return m.status === 'Inactivo';
     }
-    return true; // 'mine': todos sus miembros asignados
+    return m.status !== 'Inactivo'; // 'mine': sólo miembros activos
   });
 
   const renderForm = () => (
@@ -362,7 +364,6 @@ export default function RegistroClient({ profile }: Props) {
                 { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
                 { key: 'Visitante', label: 'Visitante', icon: '🚶' },
                 { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
               ]
             : [
                 { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
@@ -893,7 +894,15 @@ export default function RegistroClient({ profile }: Props) {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
                   {filteredMembers.map((m) => (
-                    <div key={m.id} className="card" style={{ padding: '1.25rem' }}>
+                    <div
+                      key={m.id}
+                      className="card"
+                      style={{
+                        padding: '1.25rem',
+                        opacity: m.status === 'Inactivo' ? 0.55 : 1,
+                        filter: m.status === 'Inactivo' ? 'grayscale(0.6)' : 'none',
+                      }}
+                    >
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                           <div className="avatar-placeholder" style={{ width: 42, height: 42, fontSize: '1rem' }}>
@@ -1116,10 +1125,10 @@ export default function RegistroClient({ profile }: Props) {
                     borderRadius: '8px',
                   }}
                 >
-                  <option value="mine">Todos mis miembros ({myMembers.length})</option>
+                  <option value="mine">Mis miembros activos ({myMembers.length - stats.inactivo})</option>
                   <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
                   <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
-                  <option value="inactivo">Inactivos ({stats.inactivo})</option>
+                  <option value="inactivo">⏸️ Inactivos / En Pausa ({stats.inactivo})</option>
                 </select>
               </div>
 
@@ -1147,6 +1156,8 @@ export default function RegistroClient({ profile }: Props) {
                         alignItems: 'center',
                         gap: '1rem',
                         flexWrap: 'wrap',
+                        opacity: m.status === 'Inactivo' ? 0.55 : 1,
+                        filter: m.status === 'Inactivo' ? 'grayscale(0.6)' : 'none',
                       }}
                     >
                       <div

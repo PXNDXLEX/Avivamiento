@@ -1,9 +1,9 @@
 -- ==============================================================
 -- Migración: Habilitar estado 'Inactivo' en public.members
--- Resuelve el error 400 Bad Request al actualizar un miembro a Inactivo
+-- y tipo 'inactivo' en public.member_follow_ups
 -- ==============================================================
 
--- 1. Si existe un tipo ENUM para status, agregar el valor 'Inactivo'
+-- 1. Si existe un tipo ENUM para status en Postgres, agregar el valor 'Inactivo'
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'member_status') THEN
@@ -43,3 +43,23 @@ END $$;
 ALTER TABLE public.members 
   ADD CONSTRAINT members_status_check 
   CHECK (status IN ('Nuevo', 'Reconciliado', 'Visitante', 'Consolidado', 'Inactivo'));
+
+-- 4. Actualizar restricción CHECK en public.member_follow_ups para incluir 'inactivo'
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT conname 
+        FROM pg_constraint 
+        WHERE conrelid = 'public.member_follow_ups'::regclass 
+          AND contype = 'c' 
+          AND pg_get_constraintdef(oid) ILIKE '%type%'
+    ) LOOP
+        EXECUTE 'ALTER TABLE public.member_follow_ups DROP CONSTRAINT ' || quote_ident(r.conname);
+    END LOOP;
+END $$;
+
+ALTER TABLE public.member_follow_ups 
+  ADD CONSTRAINT member_follow_ups_type_check 
+  CHECK (type IN ('llamada', 'visita', 'mensaje', 'otro', 'inactivo'));
