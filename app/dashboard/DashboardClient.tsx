@@ -60,6 +60,7 @@ import {
   FileText,
   TrendingUp,
   Clock,
+  Eye,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -388,6 +389,7 @@ export default function DashboardClient({ profile }: Props) {
   const [memberModal, setMemberModal] = useState<{
     open: boolean;
     member?: Member;
+    isReadOnly?: boolean;
   }>({ open: false });
   const emptyMemberForm = {
     full_name: '',
@@ -1002,6 +1004,7 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Member CRUD ── */
   function openAddMember() {
+    if (profile.role === 'pastor') return;
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
@@ -1013,7 +1016,27 @@ export default function DashboardClient({ profile }: Props) {
     setMemberModal({ open: true });
   }
 
+  function openViewMember(member: Member) {
+    setMemberForm({
+      full_name: member.full_name,
+      age: member.age?.toString() ?? '',
+      gender: member.gender ?? '',
+      municipio: member.municipio ?? '',
+      address: member.address ?? '',
+      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
+      status: member.status,
+      consolidator_id: member.consolidator_id || '',
+      house_group_id: member.house_group_id || '',
+    });
+    setMemberError('');
+    setMemberModal({ open: true, member, isReadOnly: true });
+  }
+
   function openEditMember(member: Member) {
+    if (profile.role === 'pastor') {
+      openViewMember(member);
+      return;
+    }
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
@@ -1028,10 +1051,14 @@ export default function DashboardClient({ profile }: Props) {
       house_group_id: member.house_group_id || '',
     });
     setMemberError('');
-    setMemberModal({ open: true, member });
+    setMemberModal({ open: true, member, isReadOnly: false });
   }
 
   async function saveMember() {
+    if (profile.role === 'pastor' || memberModal.isReadOnly) {
+      showToast('El usuario pastor es solo de visualización.', 'error');
+      return;
+    }
     if (!memberForm.full_name.trim()) {
       setMemberError('El nombre completo es requerido.');
       return;
@@ -1109,6 +1136,10 @@ export default function DashboardClient({ profile }: Props) {
   }
 
   async function confirmDelete(id: string) {
+    if (profile.role === 'pastor') {
+      showToast('El usuario pastor es solo de visualización.', 'error');
+      return;
+    }
     const { error } = await supabase
       .from('members')
       .update({ deleted_at: new Date().toISOString() })
@@ -1284,10 +1315,7 @@ export default function DashboardClient({ profile }: Props) {
   const tabs = profile.role === 'pastor' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
-    { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
-    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
-    { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
   ] : profile.role === 'user' ? [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Mis Registros' },
@@ -1309,9 +1337,12 @@ export default function DashboardClient({ profile }: Props) {
       : []),
   ];
 
-  /* Guardia para rol user: no permitir pestañas no autorizadas */
+  /* Guardia para roles user y pastor: no permitir pestañas no autorizadas */
   useEffect(() => {
     if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
+      setActiveTab('home');
+    }
+    if (profile.role === 'pastor' && activeTab !== 'home' && activeTab !== 'members' && activeTab !== 'reports') {
       setActiveTab('home');
     }
   }, [profile.role, activeTab]);
@@ -1451,14 +1482,16 @@ export default function DashboardClient({ profile }: Props) {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
               <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0 }}>Resumen de Registros</h2>
-              <button
-                onClick={openAddMember}
-                className="btn btn-primary"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
-              >
-                <Plus size={16} />
-                <span>Nuevo Miembro</span>
-              </button>
+              {profile.role !== 'pastor' && (
+                <button
+                  onClick={openAddMember}
+                  className="btn btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+                >
+                  <Plus size={16} />
+                  <span>Nuevo Miembro</span>
+                </button>
+              )}
             </div>
             <div className="grid-6" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
@@ -1573,15 +1606,17 @@ export default function DashboardClient({ profile }: Props) {
                   </button>
                 )}
 
-                <button
-                  onClick={openAddMember}
-                  className="btn btn-primary"
-                  id="add-member-btn"
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  <Plus size={16} />
-                  Nuevo Miembro
-                </button>
+                {profile.role !== 'pastor' && (
+                  <button
+                    onClick={openAddMember}
+                    className="btn btn-primary"
+                    id="add-member-btn"
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    <Plus size={16} />
+                    Nuevo Miembro
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1800,7 +1835,9 @@ export default function DashboardClient({ profile }: Props) {
                       <th>Teléfono</th>
                       <th>Consolidador</th>
                       <th>Registrado</th>
-                      <th style={{ textAlign: 'center' }}>Acciones</th>
+                      <th style={{ textAlign: 'center' }}>
+                        {profile.role === 'pastor' ? 'Detalles' : 'Acciones'}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1940,54 +1977,68 @@ export default function DashboardClient({ profile }: Props) {
                               justifyContent: 'center',
                             }}
                           >
-                            <button
-                              onClick={() => openEditMember(member)}
-                              className="btn btn-secondary btn-icon"
-                              title="Editar"
-                              aria-label="Editar miembro"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setSelectedFollowUpMember(member);
-                                setActiveTab('seguimiento');
-                              }}
-                              className="btn btn-secondary btn-icon"
-                              title="Ficha de Seguimiento e Histórico"
-                              aria-label="Ficha de seguimiento"
-                              style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
-                            >
-                              <ClipboardList size={13} />
-                            </button>
-
-                            {deleteConfirm === member.id ? (
+                            {profile.role === 'pastor' ? (
+                              <button
+                                onClick={() => openViewMember(member)}
+                                className="btn btn-secondary btn-icon"
+                                title="Ver detalles del miembro"
+                                aria-label="Ver detalles"
+                                style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                              >
+                                <Eye size={13} />
+                              </button>
+                            ) : (
                               <>
                                 <button
-                                  onClick={() => confirmDelete(member.id)}
-                                  className="btn btn-danger btn-icon"
-                                  title="Confirmar eliminación"
-                                >
-                                  <Check size={13} />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirm(null)}
+                                  onClick={() => openEditMember(member)}
                                   className="btn btn-secondary btn-icon"
-                                  title="Cancelar"
+                                  title="Editar"
+                                  aria-label="Editar miembro"
                                 >
-                                  <X size={13} />
+                                  <Edit2 size={13} />
                                 </button>
+
+                                <button
+                                  onClick={() => {
+                                    setSelectedFollowUpMember(member);
+                                    setActiveTab('seguimiento');
+                                  }}
+                                  className="btn btn-secondary btn-icon"
+                                  title="Ficha de Seguimiento e Histórico"
+                                  aria-label="Ficha de seguimiento"
+                                  style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                                >
+                                  <ClipboardList size={13} />
+                                </button>
+
+                                {deleteConfirm === member.id ? (
+                                  <>
+                                    <button
+                                      onClick={() => confirmDelete(member.id)}
+                                      className="btn btn-danger btn-icon"
+                                      title="Confirmar eliminación"
+                                    >
+                                      <Check size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirm(null)}
+                                      className="btn btn-secondary btn-icon"
+                                      title="Cancelar"
+                                    >
+                                      <X size={13} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setDeleteConfirm(member.id)}
+                                    className="btn btn-danger btn-icon"
+                                    title="Eliminar"
+                                    aria-label="Eliminar miembro"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
                               </>
-                            ) : (
-                              <button
-                                onClick={() => setDeleteConfirm(member.id)}
-                                className="btn btn-danger btn-icon"
-                                title="Eliminar"
-                                aria-label="Eliminar miembro"
-                              >
-                                <Trash2 size={13} />
-                              </button>
                             )}
                           </div>
                         </td>
@@ -3537,7 +3588,13 @@ export default function DashboardClient({ profile }: Props) {
       {/* ── Member Modal ── */}
       {memberModal.open && (
         <Modal
-          title={memberModal.member ? 'Editar Miembro' : 'Nuevo Miembro'}
+          title={
+            memberModal.isReadOnly
+              ? 'Detalles del Miembro (Solo Lectura)'
+              : memberModal.member
+              ? 'Editar Miembro'
+              : 'Nuevo Miembro'
+          }
           onClose={() => setMemberModal({ open: false })}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -3548,10 +3605,11 @@ export default function DashboardClient({ profile }: Props) {
                 type="text"
                 placeholder="Nombre y apellido"
                 value={memberForm.full_name}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, full_name: e.target.value }))
                 }
-                autoFocus
+                autoFocus={!memberModal.isReadOnly}
               />
             </div>
 
@@ -3565,6 +3623,7 @@ export default function DashboardClient({ profile }: Props) {
                   min="1"
                   max="120"
                   value={memberForm.age}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, age: e.target.value }))
                   }
@@ -3575,6 +3634,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.gender}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, gender: e.target.value }))
                   }
@@ -3590,54 +3650,84 @@ export default function DashboardClient({ profile }: Props) {
               <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
                 Estado / Condición del Miembro *
               </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
-                {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-                {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-                {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
-                {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-                {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-                {(memberModal.member
-                  ? [
-                      { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-                      { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-                      { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-                      { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                      { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
-                    ]
-                  : [
-                      { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-                      { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-                      { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-                    ]
-                ).map((st) => {
-                  const isSel = memberForm.status === st.key;
-                  return (
-                    <button
-                      key={st.key}
-                      type="button"
-                      onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
-                      className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{
-                        padding: '0.55rem 0.5rem',
-                        fontSize: '0.82rem',
-                        fontWeight: isSel ? 600 : 400,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.35rem',
-                        borderColor: isSel ? 'var(--gold-primary)' : undefined,
-                        boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
-                        width: '100%',
-                      }}
-                    >
-                      <span>{st.icon}</span>
-                      <span>{st.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {memberModal.isReadOnly ? (
+                <div
+                  style={{
+                    padding: '0.75rem 1rem',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-gold)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                  }}
+                >
+                  <span
+                    className={`badge badge-${memberForm.status.toLowerCase()}`}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    {memberForm.status}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                    {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                    {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                    {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                    {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                    {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                    {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                    {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                    {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                    {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
+                    {(memberModal.member
+                      ? [
+                          { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                          { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                          { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                          { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+                          { key: 'Inactivo', label: 'Inactivo', icon: '⏸️' },
+                        ]
+                      : [
+                          { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                          { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                          { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                        ]
+                    ).map((st) => {
+                      const isSel = memberForm.status === st.key;
+                      return (
+                        <button
+                          key={st.key}
+                          type="button"
+                          onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
+                          className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{
+                            padding: '0.55rem 0.5rem',
+                            fontSize: '0.82rem',
+                            fontWeight: isSel ? 600 : 400,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.35rem',
+                            borderColor: isSel ? 'var(--gold-primary)' : undefined,
+                            boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                            width: '100%',
+                          }}
+                        >
+                          <span>{st.icon}</span>
+                          <span>{st.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="grid-2">
@@ -3646,6 +3736,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.municipio}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, municipio: e.target.value }))
                   }
@@ -3667,6 +3758,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.consolidator_id}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
                   }
@@ -3693,6 +3785,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.house_group_id}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
                   }
@@ -3717,6 +3810,7 @@ export default function DashboardClient({ profile }: Props) {
                 type="text"
                 placeholder="Urb. Las Palmas, casa #12..."
                 value={memberForm.address}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, address: e.target.value }))
                 }
@@ -3736,6 +3830,7 @@ export default function DashboardClient({ profile }: Props) {
                 maxLength={11}
                 placeholder="Ej: 04141234567 (opcional)"
                 value={memberForm.phone}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) => {
                   const clean = limpiarTelefonoInput(e.target.value);
                   setMemberForm((f) => ({ ...f, phone: clean }));
@@ -3794,20 +3889,33 @@ export default function DashboardClient({ profile }: Props) {
                 marginTop: '0.5rem',
               }}
             >
-              <button
-                onClick={() => setMemberModal({ open: false })}
-                className="btn btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={saveMember}
-                className="btn btn-primary"
-                disabled={savingMember}
-                id="save-member-btn"
-              >
-                {savingMember ? 'Guardando...' : memberModal.member ? 'Guardar cambios' : 'Registrar'}
-              </button>
+              {memberModal.isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setMemberModal({ open: false })}
+                  className="btn btn-primary"
+                  style={{ minWidth: '100px' }}
+                >
+                  Cerrar
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setMemberModal({ open: false })}
+                    className="btn btn-secondary"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={saveMember}
+                    className="btn btn-primary"
+                    disabled={savingMember}
+                    id="save-member-btn"
+                  >
+                    {savingMember ? 'Guardando...' : memberModal.member ? 'Guardar cambios' : 'Registrar'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </Modal>
