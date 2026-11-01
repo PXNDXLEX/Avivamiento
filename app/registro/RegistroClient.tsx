@@ -90,9 +90,6 @@ export default function RegistroClient({ profile }: Props) {
     setSelectedFollowUpMember(null);
     setActiveTab(tab);
   };
-
-  const [singleCasaId, setSingleCasaId] = useState<string | null>(null);
-
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -125,17 +122,7 @@ export default function RegistroClient({ profile }: Props) {
   useEffect(() => {
     fetchMembers();
     fetchProfiles();
-    supabase
-      .from('house_groups')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data[0]) {
-          setSingleCasaId(data[0].id);
-        }
-      });
-  }, [fetchMembers, fetchProfiles, supabase]);
+  }, [fetchMembers, fetchProfiles]);
 
   async function toggleConsolidado(member: Member) {
     const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
@@ -212,7 +199,7 @@ export default function RegistroClient({ profile }: Props) {
       phone: cleanPhone,
       status: form.status,
       is_consolidated: form.status === 'Consolidado',
-      house_group_id: singleCasaId,
+      house_group_id: null,
     };
 
     try {

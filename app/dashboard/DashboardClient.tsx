@@ -125,7 +125,7 @@ const ROLE_LABELS: Record<Role, string> = {
   pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'users' | 'equipo';
+type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
 
 const TWENTY_MINUTES_MS = 20 * 60 * 1000;
 
@@ -345,11 +345,18 @@ export default function DashboardClient({ profile }: Props) {
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
+  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
+  const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
 
   /* Follow-ups state for report */
   const [allFollowUps, setAllFollowUps] = useState<MemberFollowUp[]>([]);
   const [loadingFollowUps, setLoadingFollowUps] = useState(false);
   const [reportFollowUpTypeFilter, setReportFollowUpTypeFilter] = useState<string>('all');
+
+  /* Asignar Miembros state */
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignSelectedCasa, setAssignSelectedCasa] = useState('');
+  const [assigningMember, setAssigningMember] = useState<string | null>(null);
 
   /* Date Filter */
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
@@ -371,17 +378,10 @@ export default function DashboardClient({ profile }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  /* Casa de Dios única */
-  const [singleCasa, setSingleCasa] = useState<HouseGroup | null>(null);
-  const [singleCasaModal, setSingleCasaModal] = useState(false);
-  const [singleCasaForm, setSingleCasaForm] = useState({
-    name: '',
-    address: '',
-    municipio: '',
-  });
-  const [savingSingleCasa, setSavingSingleCasa] = useState(false);
-  const [singleCasaError, setSingleCasaError] = useState('');
-  const houseGroups = useMemo(() => (singleCasa ? [singleCasa] : []), [singleCasa]);
+  /* Casas de Dios y Asistencias */
+  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [houseGroupMeetings, setHouseGroupMeetings] = useState<HouseGroupMeeting[]>([]);
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
@@ -437,6 +437,26 @@ export default function DashboardClient({ profile }: Props) {
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  /* Casa modal */
+  const [casaModal, setCasaModal] = useState<{
+    open: boolean;
+    casa?: HouseGroup;
+  }>({ open: false });
+  const emptyCasaForm = {
+    name: '',
+    address: '',
+    municipio: '',
+    leader_id: '',
+  };
+  const [casaForm, setCasaForm] = useState(emptyCasaForm);
+  const [savingCasa, setSavingCasa] = useState(false);
+  const [casaError, setCasaError] = useState('');
+
+  /* Service History Modal */
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; houseGroupId?: string; houseGroupName?: string }>({ open: false });
+
+  const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
+
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -485,55 +505,19 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase, profile]);
 
   const fetchCasasData = useCallback(async () => {
+    // El consolidador no gestiona ni ve Casas de Dios
+    if (profile.role === 'user') return;
     try {
-      const { data, error } = await supabase
-        .from('house_groups')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        const primary = data[0];
-        setSingleCasa(primary);
-        setSingleCasaForm({
-          name: primary.name || '',
-          address: primary.address || '',
-          municipio: primary.municipio || '',
-        });
-
-        // Limpiar cualquier casa duplicada previa y reasignar sus miembros a la casa única
-        if (data.length > 1 && (profile.role === 'principal' || profile.role === 'admin')) {
-          const extraIds = data.slice(1).map((c) => c.id);
-          await supabase.from('members').update({ house_group_id: primary.id }).in('house_group_id', extraIds);
-          await supabase.from('house_group_meetings').delete().in('house_group_id', extraIds);
-          await supabase.from('house_groups').delete().in('id', extraIds);
-        }
-
-        // Asignar todos los miembros que aún no tengan casa vinculada a la Casa de Dios única
-        if (profile.role === 'principal' || profile.role === 'admin') {
-          await supabase.from('members').update({ house_group_id: primary.id }).is('house_group_id', null);
-        }
-      } else if (profile.role === 'principal' || profile.role === 'admin') {
-        const { data: created, error: createErr } = await supabase
-          .from('house_groups')
-          .insert({
-            name: 'Avivamiento León de la Tribu de Judá',
-            address: 'Sede Principal',
-            municipio: 'García',
-          })
-          .select('*')
-          .single();
-        if (!createErr && created) {
-          setSingleCasa(created);
-          setSingleCasaForm({
-            name: created.name || '',
-            address: created.address || '',
-            municipio: created.municipio || '',
-          });
-          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
-        }
-      }
-    } catch {
-      // Ignorar errores silenciosamente
+      const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
+        supabase.from('house_groups').select('*'),
+        supabase.from('attendances').select('*'),
+        supabase.from('house_group_meetings').select('*')
+      ]);
+      setHouseGroups(hgData ?? []);
+      setAttendances(attData ?? []);
+      setHouseGroupMeetings(meetData ?? []);
+    } catch (e) {
+      // Ignorar de forma silenciosa si las tablas no existen todavía
     }
   }, [supabase, profile.role]);
 
@@ -588,7 +572,7 @@ export default function DashboardClient({ profile }: Props) {
 
     setAllFollowUps(loadedRecords);
     setLoadingFollowUps(false);
-  }, [supabase, profile.role]);
+  }, [supabase]);
 
   useEffect(() => {
     fetchMembers();
@@ -607,10 +591,10 @@ export default function DashboardClient({ profile }: Props) {
   }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'reports') {
+    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
       fetchProfiles();
     }
-    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports') {
+    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') {
       fetchCasasData();
     }
     if (activeTab === 'reports' || activeTab === 'seguimiento') {
@@ -828,6 +812,54 @@ export default function DashboardClient({ profile }: Props) {
     return { name: item.name, 'Nuevos': item.value, 'Total': cumulative };
   });
 
+  /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
+  const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
+
+  const filteredMeetings = houseGroupMeetings.filter(meeting => {
+    if (dateFilter === 'all') return true;
+    const meetingDate = new Date(meeting.date + 'T12:00:00Z');
+    const now = new Date();
+    if (dateFilter === 'today') {
+      return meetingDate.toDateString() === now.toDateString();
+    } else if (dateFilter === 'week') {
+      const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+      const startOfWeek = new Date(new Date().setDate(diff));
+      startOfWeek.setHours(0, 0, 0, 0);
+      return meetingDate >= startOfWeek;
+    } else if (dateFilter === 'month') {
+      return meetingDate.getMonth() === now.getMonth() && meetingDate.getFullYear() === now.getFullYear();
+    } else if (dateFilter === 'year') {
+      return meetingDate.getFullYear() === now.getFullYear();
+    }
+    return true;
+  });
+
+  filteredMeetings.forEach((meeting) => {
+    const dateKey = meeting.date;
+    const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
+    if (!attendanceByDateAndHouse[dateKey]) {
+      attendanceByDateAndHouse[dateKey] = {};
+    }
+    attendanceByDateAndHouse[dateKey][meeting.house_group_id] =
+      (attendanceByDateAndHouse[dateKey][meeting.house_group_id] || 0) + attendeesCount;
+  });
+
+  const sortedMeetingDates = Object.keys(attendanceByDateAndHouse).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime()
+  );
+
+  const casasTimelineData = sortedMeetingDates.map((dateKey) => {
+    const point: Record<string, any> = {
+      fecha: formatearFechaCorta(dateKey),
+      rawDate: dateKey,
+    };
+    houseGroups.forEach((hg) => {
+      point[hg.name] = attendanceByDateAndHouse[dateKey][hg.id] ?? 0;
+    });
+    return point;
+  });
+
+  const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
 
   /* ── Seguimiento General Data Calculations ── */
   const filteredFollowUps = useMemo(() => {
@@ -964,10 +996,11 @@ export default function DashboardClient({ profile }: Props) {
   /* ── Member CRUD ── */
   function openAddMember() {
     if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       ...emptyMemberForm,
       consolidator_id: profile.id,
-      house_group_id: singleCasa?.id || '',
+      house_group_id: '',
     });
     setMemberError('');
     setMemberModal({ open: true });
@@ -975,6 +1008,7 @@ export default function DashboardClient({ profile }: Props) {
 
   function openEditMember(member: Member) {
     if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
@@ -984,7 +1018,7 @@ export default function DashboardClient({ profile }: Props) {
       phone: member.phone ? member.phone.replace(/\D/g, '') : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
-      house_group_id: member.house_group_id || singleCasa?.id || '',
+      house_group_id: member.house_group_id || '',
     });
     setMemberError('');
     setMemberModal({ open: true, member });
@@ -1022,7 +1056,7 @@ export default function DashboardClient({ profile }: Props) {
       phone: cleanMemberPhone,
       status: memberForm.status,
       is_consolidated: memberForm.status === 'Consolidado',
-      house_group_id: singleCasa?.id || memberModal.member?.house_group_id || null,
+      house_group_id: memberForm.house_group_id || null,
       consolidator_id: chosenConsolidator.id,
       consolidator_name: chosenConsolidator.full_name,
     };
@@ -1187,49 +1221,53 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
-  /* ── Casa de Dios única (Gestión exclusiva de Administrador / Principal) ── */
-  async function handleSaveSingleCasa() {
-    if (!singleCasaForm.name.trim()) {
-      setSingleCasaError('El nombre de la Casa de Dios es obligatorio.');
+  /* ── Casas management ── */
+  async function saveCasa() {
+    if (!casaForm.name.trim()) {
+      setCasaError('El nombre es requerido.');
       return;
     }
-    setSavingSingleCasa(true);
-    setSingleCasaError('');
+    setSavingCasa(true);
+    setCasaError('');
 
     const payload = {
-      name: singleCasaForm.name.trim(),
-      address: singleCasaForm.address.trim() || null,
-      municipio: singleCasaForm.municipio || null,
+      name: casaForm.name.trim(),
+      address: casaForm.address || null,
+      municipio: casaForm.municipio || null,
+      leader_id: casaForm.leader_id || null,
     };
 
     try {
-      if (singleCasa?.id) {
+      if (casaModal.casa) {
         const { error } = await supabase
           .from('house_groups')
           .update(payload)
-          .eq('id', singleCasa.id);
+          .eq('id', casaModal.casa.id);
         if (error) throw error;
-        setSingleCasa((prev) => (prev ? { ...prev, ...payload } : null));
+        showToast('Casa de Dios actualizada.');
       } else {
-        const { data: created, error } = await supabase
-          .from('house_groups')
-          .insert(payload)
-          .select('*')
-          .single();
+        const { error } = await supabase.from('house_groups').insert(payload);
         if (error) throw error;
-        if (created) {
-          setSingleCasa(created);
-          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
-        }
+        showToast('Casa de Dios registrada.');
       }
-      showToast('Casa de Dios actualizada exitosamente.');
-      setSingleCasaModal(false);
-      fetchMembers();
+      setCasaModal({ open: false });
+      fetchCasasData();
     } catch (err: unknown) {
-      setSingleCasaError(err instanceof Error ? err.message : 'Error al guardar Casa de Dios.');
+      setCasaError(err instanceof Error ? err.message : 'Error al guardar.');
     } finally {
-      setSavingSingleCasa(false);
+      setSavingCasa(false);
     }
+  }
+
+  async function confirmDeleteCasa(id: string) {
+    const { error } = await supabase.from('house_groups').delete().eq('id', id);
+    if (error) {
+      showToast('Error al eliminar (puede tener asistencias asociadas).', 'error');
+    } else {
+      showToast('Casa de Dios eliminada.');
+      fetchCasasData();
+    }
+    setDeleteCasaConfirm(null);
   }
 
   /* ── Tabs config ── */
@@ -1245,6 +1283,7 @@ export default function DashboardClient({ profile }: Props) {
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
@@ -1258,7 +1297,7 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Guardia para rol user: no permitir pestañas no autorizadas */
   useEffect(() => {
-    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'users' || activeTab === 'equipo')) {
+    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
       setActiveTab('home');
     }
   }, [profile.role, activeTab]);
@@ -1296,64 +1335,14 @@ export default function DashboardClient({ profile }: Props) {
         </div>
 
         <div style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', margin: 0 }}>Mi Perfil</p>
-            {(profile.role === 'principal' || profile.role === 'admin') && (
-              <button
-                onClick={() => {
-                  setSingleCasaError('');
-                  setSingleCasaModal(true);
-                }}
-                className="btn-icon"
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  background: 'rgba(212, 175, 55, 0.12)',
-                  border: '1px solid var(--border-gold)',
-                  borderRadius: '6px',
-                  color: 'var(--gold-primary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                title="Configuración de Casa de Dios (Nombre y Dirección)"
-              >
-                <Edit2 size={12} />
-              </button>
-            )}
-          </div>
-          <div
-            onClick={() => {
-              if (profile.role === 'principal' || profile.role === 'admin') {
-                setSingleCasaError('');
-                setSingleCasaModal(true);
-              }
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default',
-              padding: '0.4rem',
-              borderRadius: '8px',
-              transition: 'background 0.2s',
-            }}
-            title={(profile.role === 'principal' || profile.role === 'admin') ? 'Click para editar Casa de Dios' : ''}
-          >
+          <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.75rem' }}>Mi Perfil</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div className="avatar-placeholder" style={{ width: 40, height: 40, fontSize: '1rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>{profile.full_name}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
-                {singleCasa && (
-                  <span style={{ fontSize: '0.68rem', color: 'var(--gold-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    🏠 {singleCasa.name}
-                  </span>
-                )}
-              </div>
+            <div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
             </div>
           </div>
         </div>
@@ -1379,26 +1368,13 @@ export default function DashboardClient({ profile }: Props) {
       <main className="main-content">
         {/* Mobile Header (Hidden on Desktop) */}
         <div className="hide-on-desktop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div
-            onClick={() => {
-              if (profile.role === 'principal' || profile.role === 'admin') {
-                setSingleCasaError('');
-                setSingleCasaModal(true);
-              }
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default' }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div className="avatar-placeholder" style={{ width: 36, height: 36, fontSize: '0.9rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>{profile.full_name}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
-                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
-                {(profile.role === 'principal' || profile.role === 'admin') && (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--gold-primary)' }}>✏️ Casa de Dios</span>
-                )}
-              </div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
             </div>
           </div>
           <form action={signOut}>
@@ -1477,6 +1453,133 @@ export default function DashboardClient({ profile }: Props) {
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
               <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
             </div>
+
+            {/* Casas de Dios y Asistencia en Vista Principal (solo admin, pastor y principal) */}
+            {profile.role !== 'user' && (
+              <div style={{ marginTop: '2.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0, color: 'var(--text-primary)' }}>
+                      Asistencia en Casas de Dios
+                    </h2>
+                    <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                      Historial comparativo de participantes por servicio realizado
+                    </p>
+                  </div>
+                  {casasTimelineData.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.5rem', background: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                      <button
+                        onClick={() => setCasasChartType('bar')}
+                        className={`btn ${casasChartType === 'bar' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                      >
+                        Barras
+                      </button>
+                      <button
+                        onClick={() => setCasasChartType('line')}
+                        className={`btn ${casasChartType === 'line' ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem', borderRadius: '6px' }}
+                      >
+                        Líneas
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Metricas Rápidas Casas */}
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                  <StatCard label="Casas de Dios Activas" value={houseGroups.length} icon="🏠" color="var(--gold-primary)" />
+                  <StatCard label="Miembros Regulares" value={activeRegularMembers} icon="👥" color="#3498db" />
+                </div>
+
+                {/* Attendance Chart - Por Casa y Fecha */}
+                <div className="card" style={{ padding: '1.5rem' }}>
+                  {houseGroups.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 0' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p>Las métricas de asistencia estarán disponibles cuando se configuren las Casas de Dios.</p>
+                    </div>
+                  ) : casasTimelineData.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3.5rem 1rem' }}>
+                      <Activity size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                        Sin registros de servicios con fecha aún
+                      </p>
+                      <p style={{ fontSize: '0.85rem' }}>
+                        No hay registros de actividades o servicios registrados para este período.
+                      </p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={320}>
+                      {casasChartType === 'bar' ? (
+                        <BarChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
+                          />
+                          {houseGroups.map((hg, idx) => (
+                            <Bar
+                              key={hg.id}
+                              dataKey={hg.name}
+                              fill={CASA_COLORS[idx % CASA_COLORS.length]}
+                              radius={[4, 4, 0, 0]}
+                            />
+                          ))}
+                        </BarChart>
+                      ) : (
+                        <LineChart data={casasTimelineData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+                          <XAxis dataKey="fecha" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                          <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{
+                              background: 'var(--bg-card)',
+                              border: '1px solid var(--border-gold)',
+                              borderRadius: '8px',
+                              color: 'var(--text-primary)',
+                              fontSize: '0.85rem',
+                            }}
+                          />
+                          <Legend
+                            formatter={(value) => (
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                {value}
+                              </span>
+                            )}
+                          />
+                          {houseGroups.map((hg, idx) => (
+                            <Line
+                              key={hg.id}
+                              type="monotone"
+                              dataKey={hg.name}
+                              stroke={CASA_COLORS[idx % CASA_COLORS.length]}
+                              strokeWidth={2.5}
+                              dot={{ r: 4 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          ))}
+                        </LineChart>
+                      )}
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2968,6 +3071,303 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
+        {/* ── Casas Tab ── */}
+        {activeTab === 'casas' && (
+          <div className="animate-fade-in">
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+              <button
+                onClick={() => setCasasSubTab('gestionar')}
+                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Gestionar Casas
+              </button>
+              <button
+                onClick={() => setCasasSubTab('asignar')}
+                className={`btn ${casasSubTab === 'asignar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Asignar Miembros
+              </button>
+            </div>
+
+            {/* ── Sub-tab: Gestionar Casas ── */}
+            {casasSubTab === 'gestionar' && (
+              <div>
+                {profile.role !== 'user' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                    <button
+                      onClick={() => {
+                        setCasaForm(emptyCasaForm);
+                        setCasaError('');
+                        setCasaModal({ open: true });
+                      }}
+                      className="btn btn-primary"
+                    >
+                      <Plus size={16} />
+                      Nueva Casa de Dios
+                    </button>
+                  </div>
+                )}
+
+                {(() => {
+                  const visibleHouseGroups = profile.role === 'user'
+                    ? houseGroups.filter(hg => hg.leader_id === profile.id)
+                    : houseGroups;
+                  
+                  if (visibleHouseGroups.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No hay Casas de Dios registradas.</p>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Municipio</th>
+                            <th>Dirección</th>
+                            <th>Líder Asignado</th>
+                            <th>Registrada</th>
+                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleHouseGroups.map((casa) => {
+                            const leader = profiles.find((p) => p.id === casa.leader_id);
+                          return (
+                            <tr key={casa.id}>
+                              <td><strong>{casa.name}</strong></td>
+                              <td className="text-secondary">{casa.municipio || '—'}</td>
+                              <td className="text-secondary">{casa.address || '—'}</td>
+                              <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
+                              <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
+                                {formatearFecha(casa.created_at)}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                    className="btn btn-secondary btn-icon"
+                                    title="Historial de Servicios"
+                                  >
+                                    <CalendarDays size={13} />
+                                  </button>
+
+                                  {profile.role !== 'user' && (
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setCasaForm({
+                                            name: casa.name,
+                                            address: casa.address || '',
+                                            municipio: casa.municipio || '',
+                                            leader_id: casa.leader_id || '',
+                                          });
+                                          setCasaError('');
+                                          setCasaModal({ open: true, casa });
+                                        }}
+                                        className="btn btn-secondary btn-icon"
+                                        title="Editar"
+                                      >
+                                        <Edit2 size={13} />
+                                      </button>
+
+                                      {deleteCasaConfirm === casa.id ? (
+                                        <>
+                                          <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
+                                            <Check size={13} />
+                                          </button>
+                                          <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
+                                            <X size={13} />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
+                                          <Trash2 size={13} />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── Sub-tab: Asignar Miembros ── */}
+            {casasSubTab === 'asignar' && (
+              <div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Buscar miembro</label>
+                    <div style={{ position: 'relative' }}>
+                      <Search
+                        size={15}
+                        style={{
+                          position: 'absolute',
+                          left: '1rem',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                      <input
+                        className="form-input"
+                        type="text"
+                        placeholder="Buscar por nombre..."
+                        value={assignSearch}
+                        onChange={(e) => setAssignSearch(e.target.value)}
+                        style={{ paddingLeft: '2.5rem' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ minWidth: '220px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Filtrar por Casa de Dios</label>
+                    <select
+                      className="form-select"
+                      value={assignSelectedCasa}
+                      onChange={(e) => setAssignSelectedCasa(e.target.value)}
+                    >
+                      <option value="">Todos los miembros</option>
+                      <option value="sin_asignar">🔴 Sin casa asignada</option>
+                      {houseGroups.map(hg => (
+                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {(() => {
+                  let filteredAssignMembers = members.filter(m => {
+                    const q = assignSearch.toLowerCase();
+                    const matchSearch = !q || m.full_name.toLowerCase().includes(q);
+                    let matchCasa = true;
+                    if (assignSelectedCasa === 'sin_asignar') {
+                      matchCasa = !m.house_group_id;
+                    } else if (assignSelectedCasa) {
+                      matchCasa = m.house_group_id === assignSelectedCasa;
+                    }
+                    return matchSearch && matchCasa;
+                  });
+
+                  // Sort: sin asignar primero
+                  filteredAssignMembers.sort((a, b) => {
+                    if (!a.house_group_id && b.house_group_id) return -1;
+                    if (a.house_group_id && !b.house_group_id) return 1;
+                    return a.full_name.localeCompare(b.full_name);
+                  });
+
+                  if (filteredAssignMembers.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No se encontraron miembros.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Miembro</th>
+                            <th>Municipio</th>
+                            <th>Casa de Dios Actual</th>
+                            <th style={{ textAlign: 'center' }}>Asignar / Cambiar</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredAssignMembers.map((member) => {
+                            const currentCasa = houseGroups.find(hg => hg.id === member.house_group_id);
+                            return (
+                              <tr key={member.id}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                    <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
+                                      {member.full_name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span style={{ fontWeight: 600 }}>{member.full_name}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
+                                </td>
+                                <td className="text-secondary">{member.municipio || '—'}</td>
+                                <td>
+                                  {currentCasa ? (
+                                    <span style={{ color: 'var(--gold-primary)', fontWeight: 600 }}>{currentCasa.name}</span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin casa asignada</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
+                                    <select
+                                      className="form-select"
+                                      style={{ width: 'auto', padding: '0.4rem 2rem 0.4rem 0.75rem', fontSize: '0.82rem', minWidth: '160px' }}
+                                      value={member.house_group_id || ''}
+                                      disabled={assigningMember === member.id}
+                                      onChange={async (e) => {
+                                        const newCasaId = e.target.value || null;
+                                        setAssigningMember(member.id);
+                                        try {
+                                          const { error } = await supabase
+                                            .from('members')
+                                            .update({ house_group_id: newCasaId })
+                                            .eq('id', member.id);
+                                          if (error) throw error;
+                                          showToast(newCasaId ? 'Miembro asignado a Casa de Dios.' : 'Miembro desasignado.');
+                                          fetchMembers();
+                                        } catch (err) {
+                                          showToast('Error al asignar miembro.', 'error');
+                                        } finally {
+                                          setAssigningMember(null);
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Sin asignar</option>
+                                      {houseGroups.map(hg => (
+                                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                                      ))}
+                                    </select>
+                                    {assigningMember === member.id && (
+                                      <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--gold-primary)' }} />
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem', textAlign: 'right' }}>
+                        Mostrando {filteredAssignMembers.length} de {members.length} miembros
+                        {' • '}<strong style={{ color: 'var(--gold-primary)' }}>{members.filter(m => !m.house_group_id).length}</strong> sin casa asignada
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        )}
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
@@ -3219,38 +3619,27 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
 
-              {/* Liderazgo y Administración */}
+              {/* Lista de Líderes */}
               <div className="card" style={{ padding: '1.5rem' }}>
                 <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
-                  Liderazgo y Pastoral
+                  Lista de Líderes
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {profiles.filter(p => p.role !== 'user').map(p => (
-                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                      <div className="avatar-placeholder" style={{ width: 32, height: 32 }}>
-                        {p.full_name.charAt(0).toUpperCase()}
+                  {houseGroups.map(hg => {
+                    const leader = profiles.find(p => p.id === hg.leader_id);
+                    return (
+                      <div key={hg.id} style={{ display: 'flex', flexDirection: 'column', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{leader ? leader.full_name : 'Sin líder asignado'}</p>
+                        <p className="text-muted" style={{ fontSize: '0.75rem' }}>{hg.name} • {hg.municipio || 'Sin municipio'}</p>
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0 }}>{p.full_name}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
-                          <span className={`badge badge-${p.role}`} style={{ fontSize: '0.62rem' }}>{ROLE_LABELS[p.role]}</span>
-                          {p.phone && <span className="text-muted" style={{ fontSize: '0.72rem' }}>{formatearTelefono(p.phone)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {singleCasa && (
-                    <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--border-gold)', borderRadius: '8px', background: 'rgba(212, 175, 55, 0.05)' }}>
-                      <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--gold-primary)', margin: '0 0 0.2rem 0' }}>
-                        🏠 {singleCasa.name}
-                      </p>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
-                        {singleCasa.address || 'Sede Principal'}{singleCasa.municipio ? ` • ${singleCasa.municipio}` : ''}
-                      </p>
-                    </div>
+                    );
+                  })}
+                  {houseGroups.length === 0 && (
+                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay Casas de Dios registradas.</p>
                   )}
                 </div>
               </div>
+
             </div>
           </div>
         )}
@@ -3371,30 +3760,56 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
-                Consolidador Asignado *
-              </label>
-              <select
-                className="form-select"
-                value={memberForm.consolidator_id}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
-                }
-              >
-                <option value={profile.id}>Yo mismo ({profile.full_name})</option>
-                {profiles
-                  .filter((p) => p.id !== profile.id)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Consolidador Asignado *
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.consolidator_id}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
+                  }
+                >
+                  <option value={profile.id}>Yo mismo ({profile.full_name})</option>
+                  {profiles
+                    .filter((p) => p.id !== profile.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  El visitante se cargará en la vista del consolidador.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Flame size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Casa de Dios
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.house_group_id}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
+                  }
+                >
+                  <option value="">-- Sin Casa de Dios --</option>
+                  {houseGroups.map((hg) => (
+                    <option key={hg.id} value={hg.id}>
+                      {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
                     </option>
                   ))}
-              </select>
-              <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                El visitante se cargará en la vista del consolidador.
-              </span>
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  Opcional: vincular a Casa de Dios.
+                </span>
+              </div>
             </div>
 
             <div className="form-group">
@@ -3646,25 +4061,18 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         </Modal>
       )}
-      {/* ── Modal Configuración Casa de Dios (Solo Administrador / Principal) ── */}
-      {singleCasaModal && (
-        <Modal
-          title="Casa de Dios de la Congregación"
-          onClose={() => setSingleCasaModal(false)}
-        >
+      {/* ── Casa Modal ── */}
+      {casaModal.open && (
+        <Modal title={casaModal.casa ? 'Editar Casa de Dios' : 'Nueva Casa de Dios'} onClose={() => setCasaModal({ open: false })}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>
-              Configura los datos de la Casa de Dios de la congregación. Todos los miembros registrados se asocian automáticamente a esta Casa de Dios.
-            </p>
-
             <div className="form-group">
-              <label className="form-label">Nombre de la Casa de Dios *</label>
+              <label className="form-label">Nombre de la Casa *</label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="Ej. Avivamiento León de la Tribu de Judá"
-                value={singleCasaForm.name}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Ej. Casa Betania"
+                value={casaForm.name}
+                onChange={(e) => setCasaForm((f) => ({ ...f, name: e.target.value }))}
                 autoFocus
               />
             </div>
@@ -3673,10 +4081,10 @@ export default function DashboardClient({ profile }: Props) {
               <label className="form-label">Municipio</label>
               <select
                 className="form-select"
-                value={singleCasaForm.municipio}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, municipio: e.target.value }))}
+                value={casaForm.municipio}
+                onChange={(e) => setCasaForm((f) => ({ ...f, municipio: e.target.value }))}
               >
-                <option value="">-- Seleccionar Municipio --</option>
+                <option value="">-- Seleccionar --</option>
                 {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -3688,20 +4096,102 @@ export default function DashboardClient({ profile }: Props) {
               <input
                 className="form-input"
                 type="text"
-                placeholder="Urb. El Centro, Calle Principal..."
-                value={singleCasaForm.address}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, address: e.target.value }))}
+                placeholder="Urb. El Centro, Calle 2"
+                value={casaForm.address}
+                onChange={(e) => setCasaForm((f) => ({ ...f, address: e.target.value }))}
               />
             </div>
 
-            {singleCasaError && <p className="form-error">{singleCasaError}</p>}
+            <div className="form-group">
+              <label className="form-label">Líder Asignado</label>
+              <select
+                className="form-select"
+                value={casaForm.leader_id}
+                onChange={(e) => setCasaForm((f) => ({ ...f, leader_id: e.target.value }))}
+              >
+                <option value="">-- Seleccionar líder --</option>
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.full_name} ({ROLE_LABELS[p.role]})</option>
+                ))}
+              </select>
+            </div>
+
+            {casaError && <p className="form-error">{casaError}</p>}
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <button onClick={() => setSingleCasaModal(false)} className="btn btn-secondary">
+              <button onClick={() => setCasaModal({ open: false })} className="btn btn-secondary">
                 Cancelar
               </button>
-              <button onClick={handleSaveSingleCasa} className="btn btn-primary" disabled={savingSingleCasa}>
-                {savingSingleCasa ? 'Guardando...' : 'Guardar Cambios'}
+              <button onClick={saveCasa} className="btn btn-primary" disabled={savingCasa}>
+                {savingCasa ? 'Guardando...' : casaModal.casa ? 'Guardar cambios' : 'Crear Casa'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Service History Modal ── */}
+      {historyModal.open && (
+        <Modal title={`Historial de Servicios - ${historyModal.houseGroupName || ''}`} onClose={() => setHistoryModal({ open: false })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '60vh', overflowY: 'auto' }}>
+            {(() => {
+              const meetings = houseGroupMeetings.filter(m => m.house_group_id === historyModal.houseGroupId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              
+              if (meetings.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                    <CalendarDays size={32} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
+                    <p>No se han registrado servicios en esta Casa de Dios.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="table-wrapper">
+                  <table style={{ minWidth: '400px' }}>
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Día</th>
+                        <th>Tema / Enseñanza</th>
+                        <th style={{ textAlign: 'center' }}>Asistentes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meetings.map(meeting => {
+                        const dateObj = new Date(meeting.date + 'T12:00:00Z');
+                        const dayName = dateObj.toLocaleDateString('es-ES', { weekday: 'long' });
+                        const dateString = dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        const attendeesCount = attendances.filter(a => a.meeting_id === meeting.id).length;
+                        
+                        return (
+                          <tr key={meeting.id}>
+                            <td suppressHydrationWarning>{dateString}</td>
+                            <td suppressHydrationWarning style={{ textTransform: 'capitalize' }}>{dayName}</td>
+                            <td><strong>{meeting.topic || 'Sin título'}</strong></td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ 
+                                background: 'var(--bg-card-hover)', 
+                                padding: '0.2rem 0.6rem', 
+                                borderRadius: '12px', 
+                                fontSize: '0.85rem',
+                                color: 'var(--gold-primary)'
+                              }}>
+                                {attendeesCount}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setHistoryModal({ open: false })} className="btn btn-secondary">
+                Cerrar
               </button>
             </div>
           </div>
