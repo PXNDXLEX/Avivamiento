@@ -809,47 +809,143 @@ CREATE POLICY "Permitir acceso service_attendances a autenticados"
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
               gap: '1rem',
             }}
           >
+            {/* Card 1: Servicios Realizados */}
             <div className="card-metric">
-              <span className="card-metric-label">Servicios Realizados</span>
-              <span className="card-metric-value">{kpis.totalServices}</span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Historial registrado</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Servicios Realizados
+                  </span>
+                  <span className="font-cinzel" style={{ fontSize: '2.4rem', fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                    {kpis.totalServices}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Historial registrado
+                  </span>
+                </div>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '12px',
+                    background: 'rgba(201, 168, 76, 0.12)',
+                    border: '1px solid rgba(201, 168, 76, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--gold-primary)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <CalendarCheck size={22} />
+                </div>
+              </div>
             </div>
 
+            {/* Card 2: Asistencias Totales */}
             <div className="card-metric">
-              <span className="card-metric-label">Asistencias Totales</span>
-              <span className="card-metric-value" style={{ color: 'var(--gold-primary)' }}>
-                {kpis.totalAttendances}
-              </span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Personas acumuladas</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Asistencias Totales
+                  </span>
+                  <span className="font-cinzel" style={{ fontSize: '2.4rem', fontWeight: 700, color: 'var(--gold-primary)', lineHeight: 1 }}>
+                    {kpis.totalAttendances}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Personas acumuladas
+                  </span>
+                </div>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '12px',
+                    background: 'rgba(201, 168, 76, 0.12)',
+                    border: '1px solid rgba(201, 168, 76, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--gold-primary)',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Users size={22} />
+                </div>
+              </div>
             </div>
 
+            {/* Card 3: Promedio por Servicio */}
             <div className="card-metric">
-              <span className="card-metric-label">Promedio por Servicio</span>
-              <span className="card-metric-value">{kpis.avgAttendance}</span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Asistentes por reunión</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Promedio por Servicio
+                  </span>
+                  <span className="font-cinzel" style={{ fontSize: '2.4rem', fontWeight: 700, color: '#3b82f6', lineHeight: 1 }}>
+                    {kpis.avgAttendance}
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Asistentes por reunión
+                  </span>
+                </div>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '12px',
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    border: '1px solid rgba(59, 130, 246, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#3b82f6',
+                    flexShrink: 0,
+                  }}
+                >
+                  <BarChart2 size={22} />
+                </div>
+              </div>
             </div>
 
+            {/* Card 4: Mayor Asistencia */}
             <div className="card-metric">
-              <span className="card-metric-label">Servicio Más Concurrido</span>
-              <span
-                className="card-metric-value"
-                style={{
-                  fontSize: '1.25rem',
-                  color: '#10b981',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {kpis.maxAttendanceService ? `${kpis.maxAttendanceService.attendees_count} pers.` : '0 pers.'}
-              </span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {kpis.maxAttendanceService ? kpis.maxAttendanceService.name : 'Sin registros'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: 0 }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Mayor Asistencia
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.35rem' }}>
+                    <span className="font-cinzel" style={{ fontSize: '2.4rem', fontWeight: 700, color: '#10b981', lineHeight: 1 }}>
+                      {kpis.maxAttendanceService ? kpis.maxAttendanceService.attendees_count : 0}
+                    </span>
+                    <span style={{ fontSize: '0.9rem', color: '#10b981', fontWeight: 700 }}>pers.</span>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {kpis.maxAttendanceService ? kpis.maxAttendanceService.name : 'Sin registros'}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '12px',
+                    background: 'rgba(16, 185, 129, 0.12)',
+                    border: '1px solid rgba(16, 185, 129, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#10b981',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Sparkles size={22} />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2199,3 +2295,4 @@ CREATE POLICY "Permitir acceso service_attendances a autenticados"
     </div>
   );
 }
+
