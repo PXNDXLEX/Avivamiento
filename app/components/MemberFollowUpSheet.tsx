@@ -158,7 +158,6 @@ export default function MemberFollowUpSheet({
     return now.toISOString().slice(0, 16);
   });
   const [formResult, setFormResult] = useState('');
-  const [formDuration, setFormDuration] = useState('');
   const [formDetail, setFormDetail] = useState('');
   const [markConsolidado, setMarkConsolidado] = useState(false);
   const [savingInteraction, setSavingInteraction] = useState(false);
@@ -260,7 +259,7 @@ export default function MemberFollowUpSheet({
       type: formType,
       detail: formDetail.trim(),
       result_status: formResult.trim() || (formType === 'inactivo' ? 'Inactivo' : null),
-      duration_mins: formDuration ? parseInt(formDuration, 10) : null,
+      duration_mins: null,
       date: new Date(formDate).toISOString(),
       created_at: new Date().toISOString(),
     };
@@ -315,7 +314,6 @@ export default function MemberFollowUpSheet({
     setModalOpen(false);
     setFormDetail('');
     setFormResult('');
-    setFormDuration('');
     setMarkConsolidado(false);
 
     showToast(
@@ -536,7 +534,6 @@ export default function MemberFollowUpSheet({
         <button
           onClick={() => {
             setFormResult('');
-            setFormDuration('');
             setFormDetail('');
             setErrorMsg('');
             setModalOpen(true);
@@ -1537,45 +1534,19 @@ export default function MemberFollowUpSheet({
                 </div>
               )}
 
-              {/* FECHA Y HORA & DURACIÓN */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: formType === 'llamada' || formType === 'visita' ? '1.5fr 1fr' : '1fr',
-                  gap: '1rem',
-                  marginBottom: '1.2rem',
-                }}
-              >
-                <div>
-                  <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
-                    Fecha y Hora *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    className="form-input"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    required
-                    style={{ width: '100%', fontSize: '0.85rem' }}
-                  />
-                </div>
-
-                {(formType === 'llamada' || formType === 'visita') && (
-                  <div>
-                    <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
-                      Duración (minutos)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="Ej. 8"
-                      className="form-input"
-                      value={formDuration}
-                      onChange={(e) => setFormDuration(e.target.value)}
-                      style={{ width: '100%', fontSize: '0.85rem' }}
-                    />
-                  </div>
-                )}
+              {/* FECHA Y HORA */}
+              <div style={{ marginBottom: '1.2rem' }}>
+                <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
+                  Fecha y Hora *
+                </label>
+                <input
+                  type="datetime-local"
+                  className="form-input"
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  required
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                />
               </div>
 
               {/* RESULTADO / ESTATUS */}

@@ -305,3 +305,19 @@ export function formatearFechaInteraccion(fechaStr: string): string {
 }
 
 
+
+export function formatearFechaServicio(fechaStr: string): string {
+  try {
+    if (!fechaStr) return '';
+    const d = new Date(fechaStr.includes('T') ? fechaStr : `${fechaStr}T12:00:00Z`);
+    const diaSemana = d.toLocaleDateString('es-VE', { weekday: 'long' });
+    const diaCapitalizado = diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1);
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es-VE', { month: 'long' });
+    const mesCapitalizado = month.charAt(0).toUpperCase() + month.slice(1);
+    const year = d.getFullYear();
+    return `${diaCapitalizado}, ${day} de ${mesCapitalizado} de ${year}`;
+  } catch {
+    return fechaStr;
+  }
+}

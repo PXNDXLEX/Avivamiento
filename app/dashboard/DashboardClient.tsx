@@ -48,6 +48,7 @@ import {
   BookOpen,
   Activity,
   CalendarDays,
+  CalendarCheck,
   Phone,
   MessageCircle,
   UserCheck,
@@ -64,6 +65,7 @@ import {
   PauseCircle,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
+import ServiceAttendanceModule from '@/app/components/ServiceAttendanceModule';
 
 /* ─── Types & Constants ─────────────────────────────────── */
 interface Props {
@@ -134,7 +136,7 @@ const ROLE_LABELS: Record<Role, string> = {
   pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
+type ActiveTab = 'home' | 'members' | 'asistencia' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
 
 const TWENTY_MINUTES_MS = 20 * 60 * 1000;
 
@@ -1348,6 +1350,7 @@ export default function DashboardClient({ profile }: Props) {
   ] : [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
+    { key: 'asistencia' as ActiveTab, icon: <CalendarCheck size={15} />, label: 'Asistencia' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
@@ -1362,9 +1365,16 @@ export default function DashboardClient({ profile }: Props) {
       : []),
   ];
 
+  /* Guardia para roles: solo principal y admin pueden ver asistencia */
+  useEffect(() => {
+    if (profile.role !== 'principal' && profile.role !== 'admin' && activeTab === 'asistencia') {
+      setActiveTab(profile.role === 'pastor' ? 'reports' : 'home');
+    }
+  }, [profile.role, activeTab]);
+
   /* Guardia para roles user y pastor: no permitir pestañas no autorizadas */
   useEffect(() => {
-    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo')) {
+    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'asistencia')) {
       setActiveTab('home');
     }
     if (profile.role === 'pastor' && activeTab !== 'home' && activeTab !== 'reports' && activeTab !== 'equipo') {
@@ -2180,6 +2190,18 @@ export default function DashboardClient({ profile }: Props) {
                 Mostrando {filteredMembers.length} de {members.length} miembros
               </p>
             )}
+          </div>
+        )}
+
+        {/* ── Asistencia a Servicios Tab (únicamente principal y admin) ── */}
+        {activeTab === 'asistencia' && (profile.role === 'principal' || profile.role === 'admin') && (
+          <div key="asistencia-module-content" className="animate-fade-in">
+            <ServiceAttendanceModule
+              profile={profile}
+              supabase={supabase}
+              showToast={showToast}
+              onNavigateToMembers={() => setActiveTab('members')}
+            />
           </div>
         )}
 
@@ -3133,7 +3155,9 @@ export default function DashboardClient({ profile }: Props) {
                             <th>Consolidador</th>
                             <th>Tipo</th>
                             <th>Detalle / Resultado</th>
-                            <th style={{ textAlign: 'center' }}>Acción</th>
+                            {profile.role !== 'pastor' && (
+                              <th style={{ textAlign: 'center' }}>Acción</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
@@ -3204,22 +3228,24 @@ export default function DashboardClient({ profile }: Props) {
                                       {item.detail || 'Sin notas adicionales.'}
                                     </p>
                                   </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    {targetMember && (
-                                      <button
-                                        onClick={() => {
-                                          setSelectedFollowUpMember(targetMember);
-                                          setActiveTab('seguimiento');
-                                        }}
-                                        className="btn btn-secondary btn-icon"
-                                        title="Ver historial completo del miembro"
-                                        aria-label="Ver historial"
-                                        style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
-                                      >
-                                        <ClipboardList size={13} />
-                                      </button>
-                                    )}
-                                  </td>
+                                  {profile.role !== 'pastor' && (
+                                    <td style={{ textAlign: 'center' }}>
+                                      {targetMember && (
+                                        <button
+                                          onClick={() => {
+                                            setSelectedFollowUpMember(targetMember);
+                                            setActiveTab('seguimiento');
+                                          }}
+                                          className="btn btn-secondary btn-icon"
+                                          title="Ver historial completo del miembro"
+                                          aria-label="Ver historial"
+                                          style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
+                                        >
+                                          <ClipboardList size={13} />
+                                        </button>
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}

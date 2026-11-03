@@ -100,3 +100,21 @@ export interface SystemKeepalive {
   updated_at: string;
 }
 
+
+export interface ChurchService {
+  id: string;
+  name: string;
+  date: string;
+  created_at: string;
+  created_by?: string | null;
+  attendance_count?: number;
+}
+
+export interface ServiceAttendance {
+  id: string;
+  service_id: string;
+  member_id: string;
+  created_at: string;
+  created_by?: string | null;
+  member?: Member;
+}
