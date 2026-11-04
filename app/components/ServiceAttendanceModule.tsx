@@ -36,8 +36,10 @@ interface Props {
   showToast: (msg: string, type?: 'success' | 'error') => void;
   onNavigateToMembers?: () => void;
   houseGroups?: HouseGroup[];
+  members?: Member[];
   initialCasaId?: string | null;
   onNavigateToAssign?: () => void;
+  onBackToCasas?: () => void;
 }
 
 interface ServiceWithCount extends ChurchService {
@@ -71,8 +73,10 @@ export default function ServiceAttendanceModule({
   showToast,
   onNavigateToMembers,
   houseGroups: propsHouseGroups,
+  members: propsMembers,
   initialCasaId,
   onNavigateToAssign,
+  onBackToCasas,
 }: Props) {
   /* ── Mode / View ── */
   const [view, setView] = useState<'report' | 'register'>('report');
@@ -87,8 +91,14 @@ export default function ServiceAttendanceModule({
   const [dbTableMissing, setDbTableMissing] = useState(false);
 
   /* ── Members data (ALL members: active, inactive, consolidated, visitors, etc.) ── */
-  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  const [allMembers, setAllMembers] = useState<Member[]>(propsMembers ?? []);
   const [loadingMembers, setLoadingMembers] = useState(false);
+
+  useEffect(() => {
+    if (propsMembers && propsMembers.length > 0) {
+      setAllMembers(propsMembers);
+    }
+  }, [propsMembers]);
 
   /* ── Register / Edit Form State ── */
   const [serviceDate, setServiceDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -169,7 +179,11 @@ export default function ServiceAttendanceModule({
   /* ── Members of ONLY the selected Casa de Dios ── */
   const casaMembers = useMemo(() => {
     if (!selectedCasaId) return [];
-    return allMembers.filter((m) => m.house_group_id === selectedCasaId);
+    const targetCasaId = String(selectedCasaId).trim().toLowerCase();
+    return allMembers.filter((m) => {
+      if (!m.house_group_id) return false;
+      return String(m.house_group_id).trim().toLowerCase() === targetCasaId;
+    });
   }, [allMembers, selectedCasaId]);
 
   /* ── Effective service name ── */
@@ -180,12 +194,17 @@ export default function ServiceAttendanceModule({
 
   /* ── 1. Fetch All Members ── */
   const fetchMembersList = useCallback(async () => {
+    if (propsMembers && propsMembers.length > 0) {
+      setAllMembers(propsMembers);
+      return;
+    }
     setLoadingMembers(true);
     try {
       const { data, error } = await supabase
         .from('members')
         .select('*')
-        .order('full_name', { ascending: true });
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.warn('Error fetching all members from Supabase:', error);
@@ -196,7 +215,7 @@ export default function ServiceAttendanceModule({
     } finally {
       setLoadingMembers(false);
     }
-  }, [supabase]);
+  }, [supabase, propsMembers]);
 
   /* ── 2. Fetch Services & Attendance counts ── */
   const fetchServicesList = useCallback(async () => {
@@ -665,9 +684,9 @@ export default function ServiceAttendanceModule({
     return services.filter((s) => {
       // Filtrar por la Casa de Dios seleccionada
       if (selectedCasaId) {
-        // Si el servicio tiene house_group_id, debe coincidir
-        if (s.house_group_id && s.house_group_id !== selectedCasaId) {
-          return false;
+        const targetId = String(selectedCasaId).trim().toLowerCase();
+        if (s.house_group_id) {
+          if (String(s.house_group_id).trim().toLowerCase() !== targetId) return false;
         }
       }
 
@@ -825,7 +844,28 @@ END $$;`;
         </div>
       )}
 
-      {/* ── Selector de Casa de Dios ── */}
+      {/* ── Volver a Casas de Dios ── */}
+      {onBackToCasas && (
+        <div style={{ marginBottom: '0.75rem' }}>
+          <button
+            onClick={onBackToCasas}
+            className="btn btn-secondary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.45rem 1rem',
+              borderRadius: '20px',
+              fontSize: '0.85rem',
+            }}
+          >
+            <ArrowLeft size={16} />
+            Volver a Casas de Dios
+          </button>
+        </div>
+      )}
+
+      {/* ── Tarjeta Cabecera de la Casa de Dios Seleccionada ── */}
       <div
         className="card"
         style={{
@@ -843,8 +883,8 @@ END $$;`;
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
           <div
             style={{
-              width: 44,
-              height: 44,
+              width: 46,
+              height: 46,
               borderRadius: '12px',
               background: 'rgba(201, 168, 76, 0.15)',
               border: '1px solid rgba(201, 168, 76, 0.3)',
@@ -863,60 +903,57 @@ END $$;`;
                 Casa de Dios
               </span>
               {selectedCasa && (
-                <span className="badge badge-consolidado" style={{ fontSize: '0.65rem' }}>
+                <span className="badge badge-consolidado" style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}>
                   👥 {casaMembers.length} {casaMembers.length === 1 ? 'integrante' : 'integrantes'}
                 </span>
               )}
             </div>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.25rem', color: 'var(--text-primary)' }}>
-              {selectedCasa ? selectedCasa.name : 'Selecciona una Casa de Dios'}
+            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.35rem', color: 'var(--text-primary)' }}>
+              {selectedCasa ? selectedCasa.name : 'Casa de Dios'}
             </h3>
             {selectedCasa && (
-              <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <p style={{ margin: '0.15rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                 {selectedCasa.address || 'Sin dirección'}{selectedCasa.municipio ? ` • ${selectedCasa.municipio}` : ''}
               </p>
             )}
           </div>
         </div>
 
-        {/* Dropdown selector de Casa de Dios */}
-        {casas.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Seleccionar Casa:
-            </label>
-            <select
-              value={selectedCasaId || ''}
-              onChange={(e) => {
-                setSelectedCasaId(e.target.value);
-                if (view === 'register') {
-                  setView('report');
-                  setSelectedMemberIds(new Set());
-                }
-              }}
+        {/* Botón de acción */}
+        <div>
+          {view === 'report' ? (
+            <button
+              onClick={startNewService}
+              className="btn btn-primary"
               style={{
-                padding: '0.55rem 1rem',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-gold)',
-                borderRadius: 'var(--border-radius)',
-                color: 'var(--text-primary)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 1.25rem',
                 fontSize: '0.9rem',
                 fontWeight: 600,
-                minWidth: '220px',
-                cursor: 'pointer',
               }}
             >
-              {casas.map((casa) => {
-                const count = allMembers.filter((m) => m.house_group_id === casa.id).length;
-                return (
-                  <option key={casa.id} value={casa.id}>
-                    🏠 {casa.name} ({count} integrantes)
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        )}
+              <Plus size={16} />
+              Registrar Asistencia
+            </button>
+          ) : (
+            <button
+              onClick={() => setView('report')}
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 1.25rem',
+                fontSize: '0.9rem',
+              }}
+            >
+              <ArrowLeft size={16} />
+              Ver Servicios Anteriores
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Si no hay ninguna Casa de Dios creada */}
@@ -938,71 +975,14 @@ END $$;`;
           <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
             Para llevar la asistencia de los servicios, primero debes crear al menos una Casa de Dios en la sub-pestaña "Gestionar Casas".
           </p>
+          {onNavigateToAssign && (
+            <button onClick={onNavigateToAssign} className="btn btn-primary" style={{ margin: '0 auto' }}>
+              Ir a Gestionar Casas
+            </button>
+          )}
         </div>
       ) : (
         <>
-          {/* ── Header con Navegación de Vistas ── */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '1rem',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '10px',
-                    background: 'linear-gradient(135deg, rgba(201,168,76,0.2) 0%, rgba(201,168,76,0.05) 100%)',
-                    border: '1px solid rgba(201,168,76,0.3)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--gold-primary)',
-                  }}
-                >
-                  <CalendarCheck size={18} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    Asistencia de Servicios: {selectedCasa?.name || 'Casa de Dios'}
-                  </h3>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Registros y reportes vinculados a esta Casa de Dios
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Action button to switch view */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              {view === 'report' ? (
-                <button
-                  onClick={startNewService}
-                  className="btn btn-primary"
-                  style={{ gap: '0.5rem', padding: '0.65rem 1.25rem' }}
-                >
-                  <Plus size={18} />
-                  Registrar Asistencia
-                </button>
-              ) : (
-                <button
-                  onClick={() => setView('report')}
-                  className="btn btn-secondary"
-                  style={{ gap: '0.5rem', padding: '0.65rem 1.25rem' }}
-                >
-                  <ArrowLeft size={16} />
-                  Volver al Reporte
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* ═══════════════════════════════════════════════════════════════
               VISTA 1: REPORTE DE SERVICIOS DE ESTA CASA DE DIOS
               ═══════════════════════════════════════════════════════════════ */}

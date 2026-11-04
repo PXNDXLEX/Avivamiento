@@ -1351,7 +1351,6 @@ export default function DashboardClient({ profile }: Props) {
   ] : [
     { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
-    { key: 'asistencia' as ActiveTab, icon: <CalendarCheck size={15} />, label: 'Asistencia' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
@@ -1366,12 +1365,13 @@ export default function DashboardClient({ profile }: Props) {
       : []),
   ];
 
-  /* Guardia para roles: solo principal y admin pueden ver asistencia */
+  /* Redirigir asistencia a Casas de Dios */
   useEffect(() => {
-    if (profile.role !== 'principal' && profile.role !== 'admin' && activeTab === 'asistencia') {
-      setActiveTab(profile.role === 'pastor' ? 'reports' : 'home');
+    if (activeTab === 'asistencia') {
+      setActiveTab('casas');
+      setCasasSubTab('gestionar');
     }
-  }, [profile.role, activeTab]);
+  }, [activeTab]);
 
   /* Guardia para roles user y pastor: no permitir pestañas no autorizadas */
   useEffect(() => {
@@ -2194,23 +2194,7 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
-        {/* ── Asistencia a Servicios Tab (únicamente principal y admin) ── */}
-        {activeTab === 'asistencia' && (profile.role === 'principal' || profile.role === 'admin') && (
-          <div key="asistencia-module-content" className="animate-fade-in">
-            <ServiceAttendanceModule
-              profile={profile}
-              supabase={supabase}
-              showToast={showToast}
-              houseGroups={houseGroups}
-              initialCasaId={selectedCasaAttendanceId}
-              onNavigateToMembers={() => setActiveTab('members')}
-              onNavigateToAssign={() => {
-                setActiveTab('casas');
-                setCasasSubTab('asignar');
-              }}
-            />
-          </div>
-        )}
+
 
         {/* ── Seguimiento Tab ── */}
         {activeTab === 'seguimiento' && (
@@ -3272,29 +3256,25 @@ export default function DashboardClient({ profile }: Props) {
             {/* Sub-tabs */}
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
               <button
-                onClick={() => setCasasSubTab('gestionar')}
+                onClick={() => {
+                  setCasasSubTab('gestionar');
+                  setSelectedCasaAttendanceId(null);
+                }}
                 className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
                 Gestionar Casas
               </button>
               <button
-                onClick={() => setCasasSubTab('asignar')}
+                onClick={() => {
+                  setCasasSubTab('asignar');
+                  setSelectedCasaAttendanceId(null);
+                }}
                 className={`btn ${casasSubTab === 'asignar' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
                 Asignar Miembros
               </button>
-              {(profile.role === 'principal' || profile.role === 'admin') && (
-                <button
-                  onClick={() => setCasasSubTab('asistencia')}
-                  className={`btn ${casasSubTab === 'asistencia' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ borderRadius: '20px', padding: '0.4rem 1.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  <CalendarCheck size={14} />
-                  Asistencia de Servicios
-                </button>
-              )}
             </div>
 
             {/* ── Sub-tab: Gestionar Casas ── */}
@@ -3339,8 +3319,7 @@ export default function DashboardClient({ profile }: Props) {
                             <th>Municipio</th>
                             <th>Dirección</th>
                             <th>Líder Asignado</th>
-                            <th>Registrada</th>
-                            <th style={{ textAlign: 'center' }}>Acciones</th>
+                            <th style={{ textAlign: 'center', minWidth: '340px' }}>Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3352,30 +3331,31 @@ export default function DashboardClient({ profile }: Props) {
                               <td className="text-secondary">{casa.municipio || '—'}</td>
                               <td className="text-secondary">{casa.address || '—'}</td>
                               <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
-                              <td className="text-muted" style={{ fontSize: '0.8rem' }} suppressHydrationWarning>
-                                {formatearFecha(casa.created_at)}
-                              </td>
                               <td>
-                                <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                <div style={{ display: 'flex', gap: '0.45rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
                                   {(profile.role === 'principal' || profile.role === 'admin') && (
-                                      <button
-                                        onClick={() => {
-                                          setSelectedCasaAttendanceId(casa.id);
-                                          setCasasSubTab('asistencia');
-                                        }}
-                                        className="btn btn-secondary btn-icon"
-                                        title="Registrar y ver asistencia de servicios de esta Casa"
-                                        style={{ color: 'var(--gold-primary)' }}
-                                      >
-                                        <CalendarCheck size={13} />
-                                      </button>
-                                    )}
                                     <button
-                                      onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
-                                    className="btn btn-secondary btn-icon"
-                                    title="Historial de Servicios"
+                                      onClick={() => {
+                                        setSelectedCasaAttendanceId(casa.id);
+                                        setCasasSubTab('asistencia');
+                                      }}
+                                      className="btn btn-primary"
+                                      style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                      title="Registrar y ver asistencia de servicios de esta Casa"
+                                    >
+                                      <CalendarCheck size={14} />
+                                      Asistencia
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                    title="Historial de Servicios de esta Casa"
                                   >
-                                    <CalendarDays size={13} />
+                                    <CalendarDays size={14} />
+                                    Historial
                                   </button>
 
                                   {profile.role !== 'user' && (
@@ -3391,24 +3371,43 @@ export default function DashboardClient({ profile }: Props) {
                                           setCasaError('');
                                           setCasaModal({ open: true, casa });
                                         }}
-                                        className="btn btn-secondary btn-icon"
-                                        title="Editar"
+                                        className="btn btn-secondary"
+                                        style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                        title="Editar Casa de Dios"
                                       >
-                                        <Edit2 size={13} />
+                                        <Edit2 size={14} />
+                                        Editar
                                       </button>
 
                                       {deleteCasaConfirm === casa.id ? (
-                                        <>
-                                          <button onClick={() => confirmDeleteCasa(casa.id)} className="btn btn-danger btn-icon">
-                                            <Check size={13} />
+                                        <div style={{ display: 'inline-flex', gap: '0.3rem' }}>
+                                          <button
+                                            onClick={() => confirmDeleteCasa(casa.id)}
+                                            className="btn btn-danger"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem', gap: '0.3rem' }}
+                                            title="Confirmar eliminación"
+                                          >
+                                            <Check size={14} />
+                                            Confirmar
                                           </button>
-                                          <button onClick={() => setDeleteCasaConfirm(null)} className="btn btn-secondary btn-icon">
-                                            <X size={13} />
+                                          <button
+                                            onClick={() => setDeleteCasaConfirm(null)}
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem' }}
+                                            title="Cancelar"
+                                          >
+                                            <X size={14} />
                                           </button>
-                                        </>
+                                        </div>
                                       ) : (
-                                        <button onClick={() => setDeleteCasaConfirm(casa.id)} className="btn btn-danger btn-icon" title="Eliminar">
-                                          <Trash2 size={13} />
+                                        <button
+                                          onClick={() => setDeleteCasaConfirm(casa.id)}
+                                          className="btn btn-danger"
+                                          style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                          title="Eliminar Casa de Dios"
+                                        >
+                                          <Trash2 size={14} />
+                                          Eliminar
                                         </button>
                                       )}
                                     </>
@@ -3587,13 +3586,18 @@ export default function DashboardClient({ profile }: Props) {
 
             {/* ── Sub-tab: Asistencia de Servicios ── */}
             {casasSubTab === 'asistencia' && (profile.role === 'principal' || profile.role === 'admin') && (
-              <div style={{ marginTop: '1rem' }}>
+              <div style={{ marginTop: '0.5rem' }}>
                 <ServiceAttendanceModule
                   profile={profile}
                   supabase={supabase}
                   showToast={showToast}
                   houseGroups={houseGroups}
+                  members={members}
                   initialCasaId={selectedCasaAttendanceId}
+                  onBackToCasas={() => {
+                    setCasasSubTab('gestionar');
+                    setSelectedCasaAttendanceId(null);
+                  }}
                   onNavigateToMembers={() => setActiveTab('members')}
                   onNavigateToAssign={() => setCasasSubTab('asignar')}
                 />
