@@ -356,7 +356,8 @@ export default function DashboardClient({ profile }: Props) {
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
-  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar'>('gestionar');
+  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar' | 'asistencia'>('gestionar');
+  const [selectedCasaAttendanceId, setSelectedCasaAttendanceId] = useState<string | null>(null);
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
   const [membersSubTab, setMembersSubTab] = useState<'activos' | 'inactivos'>('activos');
   const [seguimientoSubTab, setSeguimientoSubTab] = useState<'activos' | 'inactivos'>('activos');
@@ -608,7 +609,7 @@ export default function DashboardClient({ profile }: Props) {
     if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
       fetchProfiles();
     }
-    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas') {
+    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas' || activeTab === 'asistencia') {
       fetchCasasData();
     }
     if (activeTab === 'reports' || activeTab === 'seguimiento') {
@@ -2200,7 +2201,13 @@ export default function DashboardClient({ profile }: Props) {
               profile={profile}
               supabase={supabase}
               showToast={showToast}
+              houseGroups={houseGroups}
+              initialCasaId={selectedCasaAttendanceId}
               onNavigateToMembers={() => setActiveTab('members')}
+              onNavigateToAssign={() => {
+                setActiveTab('casas');
+                setCasasSubTab('asignar');
+              }}
             />
           </div>
         )}
@@ -3278,6 +3285,16 @@ export default function DashboardClient({ profile }: Props) {
               >
                 Asignar Miembros
               </button>
+              {(profile.role === 'principal' || profile.role === 'admin') && (
+                <button
+                  onClick={() => setCasasSubTab('asistencia')}
+                  className={`btn ${casasSubTab === 'asistencia' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ borderRadius: '20px', padding: '0.4rem 1.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <CalendarCheck size={14} />
+                  Asistencia de Servicios
+                </button>
+              )}
             </div>
 
             {/* ── Sub-tab: Gestionar Casas ── */}
@@ -3340,8 +3357,21 @@ export default function DashboardClient({ profile }: Props) {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                                  <button
-                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                  {(profile.role === 'principal' || profile.role === 'admin') && (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedCasaAttendanceId(casa.id);
+                                          setCasasSubTab('asistencia');
+                                        }}
+                                        className="btn btn-secondary btn-icon"
+                                        title="Registrar y ver asistencia de servicios de esta Casa"
+                                        style={{ color: 'var(--gold-primary)' }}
+                                      >
+                                        <CalendarCheck size={13} />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
                                     className="btn btn-secondary btn-icon"
                                     title="Historial de Servicios"
                                   >
@@ -3552,6 +3582,21 @@ export default function DashboardClient({ profile }: Props) {
                     </div>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ── Sub-tab: Asistencia de Servicios ── */}
+            {casasSubTab === 'asistencia' && (profile.role === 'principal' || profile.role === 'admin') && (
+              <div style={{ marginTop: '1rem' }}>
+                <ServiceAttendanceModule
+                  profile={profile}
+                  supabase={supabase}
+                  showToast={showToast}
+                  houseGroups={houseGroups}
+                  initialCasaId={selectedCasaAttendanceId}
+                  onNavigateToMembers={() => setActiveTab('members')}
+                  onNavigateToAssign={() => setCasasSubTab('asignar')}
+                />
               </div>
             )}
           </div>

@@ -103,6 +103,7 @@ export interface SystemKeepalive {
 
 export interface ChurchService {
   id: string;
+  house_group_id?: string | null;
   name: string;
   date: string;
   created_at: string;
