@@ -3257,16 +3257,6 @@ export default function DashboardClient({ profile }: Props) {
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
               <button
                 onClick={() => {
-                  setCasasSubTab('gestionar');
-                  setSelectedCasaAttendanceId(null);
-                }}
-                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
-              >
-                Gestionar Casas
-              </button>
-              <button
-                onClick={() => {
                   setCasasSubTab('asignar');
                   setSelectedCasaAttendanceId(null);
                 }}
@@ -3274,6 +3264,16 @@ export default function DashboardClient({ profile }: Props) {
                 style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
               >
                 Asignar Miembros
+              </button>
+              <button
+                onClick={() => {
+                  setCasasSubTab('gestionar');
+                  setSelectedCasaAttendanceId(null);
+                }}
+                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Gestionar Casas
               </button>
             </div>
 
