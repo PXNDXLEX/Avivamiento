@@ -461,6 +461,7 @@ export default function DashboardClient({ profile }: Props) {
     name: '',
     address: '',
     municipio: '',
+    leader_name: '',
     leader_id: '',
   };
   const [casaForm, setCasaForm] = useState(emptyCasaForm);
@@ -1303,19 +1304,43 @@ export default function DashboardClient({ profile }: Props) {
       name: casaForm.name.trim(),
       address: casaForm.address || null,
       municipio: casaForm.municipio || null,
-      leader_id: casaForm.leader_id || null,
+      leader_name: casaForm.leader_name?.trim() || null,
     };
 
     try {
       if (casaModal.casa) {
-        const { error } = await supabase
+        let { error } = await supabase
           .from('house_groups')
           .update(payload)
           .eq('id', casaModal.casa.id);
+        if (error && error.message && error.message.includes('leader_name')) {
+          const fallbackPayload = {
+            name: payload.name,
+            address: payload.address,
+            municipio: payload.municipio,
+          };
+          const res = await supabase.from('house_groups').update(fallbackPayload).eq('id', casaModal.casa.id);
+          error = res.error;
+          if (!error) {
+            showToast('Casa actualizada. Recuerda ejecutar el script SQL en Supabase para guardar el nombre del líder.');
+          }
+        }
         if (error) throw error;
         showToast('Casa de Dios actualizada.');
       } else {
-        const { error } = await supabase.from('house_groups').insert(payload);
+        let { error } = await supabase.from('house_groups').insert(payload);
+        if (error && error.message && error.message.includes('leader_name')) {
+          const fallbackPayload = {
+            name: payload.name,
+            address: payload.address,
+            municipio: payload.municipio,
+          };
+          const res = await supabase.from('house_groups').insert(fallbackPayload);
+          error = res.error;
+          if (!error) {
+            showToast('Casa registrada. Recuerda ejecutar el script SQL en Supabase para guardar el nombre del líder.');
+          }
+        }
         if (error) throw error;
         showToast('Casa de Dios registrada.');
       }
@@ -3343,12 +3368,13 @@ export default function DashboardClient({ profile }: Props) {
                         <tbody>
                           {visibleHouseGroups.map((casa) => {
                             const leader = profiles.find((p) => p.id === casa.leader_id);
+                            const leaderDisplayName = casa.leader_name || (leader ? leader.full_name : '—');
                           return (
                             <tr key={casa.id}>
                               <td><strong>{casa.name}</strong></td>
                               <td className="text-secondary">{casa.municipio || '—'}</td>
                               <td className="text-secondary">{casa.address || '—'}</td>
-                              <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
+                              <td className="text-secondary">{leaderDisplayName}</td>
                               <td>
                                 <div style={{ display: 'flex', gap: '0.45rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
                                   {(profile.role === 'principal' || profile.role === 'admin') && (
@@ -3384,6 +3410,7 @@ export default function DashboardClient({ profile }: Props) {
                                             name: casa.name,
                                             address: casa.address || '',
                                             municipio: casa.municipio || '',
+                                            leader_name: casa.leader_name || (leader ? leader.full_name : ''),
                                             leader_id: casa.leader_id || '',
                                           });
                                           setCasaError('');
@@ -4442,16 +4469,13 @@ export default function DashboardClient({ profile }: Props) {
 
             <div className="form-group">
               <label className="form-label">Líder Asignado</label>
-              <select
-                className="form-select"
-                value={casaForm.leader_id}
-                onChange={(e) => setCasaForm((f) => ({ ...f, leader_id: e.target.value }))}
-              >
-                <option value="">-- Seleccionar líder --</option>
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.full_name} ({ROLE_LABELS[p.role]})</option>
-                ))}
-              </select>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="Nombre del líder (ej. Pastor Juan Pérez)"
+                value={casaForm.leader_name}
+                onChange={(e) => setCasaForm((f) => ({ ...f, leader_name: e.target.value }))}
+              />
             </div>
 
             {casaError && <p className="form-error">{casaError}</p>}

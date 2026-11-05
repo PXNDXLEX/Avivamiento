@@ -55,6 +55,7 @@ export interface HouseGroup {
   address: string | null;
   municipio: string | null;
   leader_id: string | null;
+  leader_name?: string | null;
   created_at: string;
 }
 
