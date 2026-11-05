@@ -29,6 +29,8 @@ import {
   List,
   ChevronDown,
   Info,
+  PauseCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface Props {
@@ -110,6 +112,21 @@ const TYPE_CONFIG: Record<
       'Nota general de avance',
     ],
   },
+  inactivo: {
+    label: 'PAUSA PASTORAL / INACTIVO',
+    icon: PauseCircle,
+    color: '#94a3b8',
+    badgeBg: 'rgba(148, 163, 184, 0.15)',
+    badgeBorder: 'rgba(148, 163, 184, 0.4)',
+    badgeText: '#94a3b8',
+    defaultResults: [
+      'Pausa pastoral temporal',
+      'Mudanza de ciudad o país',
+      'Cambio de congregación',
+      'Motivos personales o salud',
+      'Sin respuesta prolongada',
+    ],
+  },
 };
 
 export default function MemberFollowUpSheet({
@@ -141,7 +158,6 @@ export default function MemberFollowUpSheet({
     return now.toISOString().slice(0, 16);
   });
   const [formResult, setFormResult] = useState('');
-  const [formDuration, setFormDuration] = useState('');
   const [formDetail, setFormDetail] = useState('');
   const [markConsolidado, setMarkConsolidado] = useState(false);
   const [savingInteraction, setSavingInteraction] = useState(false);
@@ -223,6 +239,10 @@ export default function MemberFollowUpSheet({
   /* ── Guardar Nueva Interacción ── */
   async function handleSaveInteraction(e: React.FormEvent) {
     e.preventDefault();
+    if (formType === 'inactivo' && !formDetail.trim()) {
+      setErrorMsg('Debes ingresar la nota o motivo de la inactividad obligatoriamente.');
+      return;
+    }
     if (!formDetail.trim()) {
       setErrorMsg('Por favor escribe el detalle de la interacción.');
       return;
@@ -238,8 +258,8 @@ export default function MemberFollowUpSheet({
       user_name: profile.full_name || profile.username || 'Usuario',
       type: formType,
       detail: formDetail.trim(),
-      result_status: formResult.trim() || null,
-      duration_mins: formDuration ? parseInt(formDuration, 10) : null,
+      result_status: formResult.trim() || (formType === 'inactivo' ? 'Inactivo' : null),
+      duration_mins: null,
       date: new Date(formDate).toISOString(),
       created_at: new Date().toISOString(),
     };
@@ -250,6 +270,11 @@ export default function MemberFollowUpSheet({
       const { error } = await supabase.from('member_follow_ups').insert([newFollowUp]);
       if (!error) {
         savedRemote = true;
+      } else if (formType === 'inactivo') {
+        // Fallback por si la restricción CHECK en Postgres no se ha migrado aún
+        const fallback = { ...newFollowUp, type: 'otro' as FollowUpType, title: 'Pausa Pastoral / Inactivo' };
+        const { error: err2 } = await supabase.from('member_follow_ups').insert([fallback]);
+        if (!err2) savedRemote = true;
       }
     } catch {
       // Ignorar si la tabla no existe en Supabase todavía
@@ -264,8 +289,17 @@ export default function MemberFollowUpSheet({
       localStorage.setItem(localKey, JSON.stringify(updated));
     } catch {}
 
-    // Si se marcó consolidar o cambiar condición
-    if (markConsolidado && !currentMember.is_consolidated) {
+    // Si se marcó como inactivo
+    if (formType === 'inactivo') {
+      try {
+        await supabase
+          .from('members')
+          .update({ is_consolidated: false, status: 'Inactivo' })
+          .eq('id', currentMember.id);
+        setCurrentMember((prev) => ({ ...prev, is_consolidated: false, status: 'Inactivo' }));
+        if (onMemberUpdated) onMemberUpdated();
+      } catch {}
+    } else if (markConsolidado && !currentMember.is_consolidated) {
       try {
         await supabase
           .from('members')
@@ -280,11 +314,12 @@ export default function MemberFollowUpSheet({
     setModalOpen(false);
     setFormDetail('');
     setFormResult('');
-    setFormDuration('');
     setMarkConsolidado(false);
 
     showToast(
-      savedRemote
+      formType === 'inactivo'
+        ? 'Miembro puesto en Inactivo y nota guardada.'
+        : savedRemote
         ? 'Interacción registrada con éxito.'
         : 'Interacción guardada en este equipo (Recuerda ejecutar la migración SQL en Supabase).'
     );
@@ -308,6 +343,14 @@ export default function MemberFollowUpSheet({
 
   /* ── Cambiar Estatus del Miembro Rápidamente ── */
   async function handleStatusChange(newStatus: Member['status']) {
+    if (newStatus === 'Inactivo') {
+      // Para poner inactivo, abrir modal de nuevo seguimiento con nota obligatoria
+      setFormType('inactivo');
+      setFormResult('Pausa pastoral temporal');
+      setFormDetail('');
+      setModalOpen(true);
+      return;
+    }
     const isConsolidated = newStatus === 'Consolidado';
     try {
       const { error } = await supabase
@@ -491,7 +534,6 @@ export default function MemberFollowUpSheet({
         <button
           onClick={() => {
             setFormResult('');
-            setFormDuration('');
             setFormDetail('');
             setErrorMsg('');
             setModalOpen(true);
@@ -696,6 +738,7 @@ export default function MemberFollowUpSheet({
                   <option value="Reconciliado">Reconciliado</option>
                   <option value="Visitante">Visitante</option>
                   <option value="Consolidado">Consolidado</option>
+                  <option value="Inactivo">⏸️ Inactivo (Requiere nota)</option>
                 </select>
               </div>
             </div>
@@ -1414,11 +1457,11 @@ export default function MemberFollowUpSheet({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '0.75rem',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
+                    gap: '0.5rem',
                   }}
                 >
-                  {(['llamada', 'visita', 'mensaje', 'otro'] as FollowUpType[]).map((t) => {
+                  {(['llamada', 'visita', 'mensaje', 'otro', 'inactivo'] as FollowUpType[]).map((t) => {
                     const cfg = TYPE_CONFIG[t];
                     const IconComponent = cfg.icon;
                     const isSelected = formType === t;
@@ -1429,28 +1472,28 @@ export default function MemberFollowUpSheet({
                         type="button"
                         onClick={() => {
                           setFormType(t);
-                          setFormResult('');
+                          setFormResult(t === 'inactivo' ? 'Pausa pastoral temporal' : '');
                         }}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '0.65rem',
-                          padding: '0.8rem',
+                          gap: '0.5rem',
+                          padding: '0.7rem 0.5rem',
                           borderRadius: '8px',
                           border: isSelected ? `2px solid ${cfg.color}` : '1px solid var(--border-subtle)',
                           background: isSelected ? cfg.badgeBg : 'var(--bg-secondary)',
                           color: isSelected ? cfg.color : 'var(--text-primary)',
                           cursor: 'pointer',
                           fontWeight: isSelected ? 700 : 500,
-                          fontSize: '0.85rem',
+                          fontSize: '0.82rem',
                           textAlign: 'left',
                           transition: 'all 0.2s',
                         }}
                       >
                         <div
                           style={{
-                            width: 28,
-                            height: 28,
+                            width: 26,
+                            height: 26,
                             borderRadius: '50%',
                             background: isSelected ? cfg.color : 'rgba(255,255,255,0.06)',
                             color: isSelected ? '#fff' : cfg.color,
@@ -1462,52 +1505,48 @@ export default function MemberFollowUpSheet({
                         >
                           <IconComponent size={14} />
                         </div>
-                        <span>{t === 'llamada' ? 'Llamada' : t === 'visita' ? 'Visita' : t === 'mensaje' ? 'WhatsApp' : 'Otro / Nota'}</span>
+                        <span>{t === 'llamada' ? 'Llamada' : t === 'visita' ? 'Visita' : t === 'mensaje' ? 'WhatsApp' : t === 'inactivo' ? 'Inactivo' : 'Otro'}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* FECHA Y HORA & DURACIÓN */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: formType === 'llamada' || formType === 'visita' ? '1.5fr 1fr' : '1fr',
-                  gap: '1rem',
-                  marginBottom: '1.2rem',
-                }}
-              >
-                <div>
-                  <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
-                    Fecha y Hora *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    className="form-input"
-                    value={formDate}
-                    onChange={(e) => setFormDate(e.target.value)}
-                    required
-                    style={{ width: '100%', fontSize: '0.85rem' }}
-                  />
-                </div>
-
-                {(formType === 'llamada' || formType === 'visita') && (
+              {formType === 'inactivo' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.65rem',
+                    padding: '0.75rem 1rem',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: '8px',
+                    marginBottom: '1.2rem',
+                    fontSize: '0.82rem',
+                    color: '#f87171',
+                  }}
+                >
+                  <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
                   <div>
-                    <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
-                      Duración (minutos)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      placeholder="Ej. 8"
-                      className="form-input"
-                      value={formDuration}
-                      onChange={(e) => setFormDuration(e.target.value)}
-                      style={{ width: '100%', fontSize: '0.85rem' }}
-                    />
+                    <strong>Paso a estado Inactivo:</strong> Al guardar este seguimiento, el miembro pasará automáticamente a estar <strong>INACTIVO</strong> y no se mostrará junto con los activos. Por favor especifica abajo la nota con el motivo.
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* FECHA Y HORA */}
+              <div style={{ marginBottom: '1.2rem' }}>
+                <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem' }}>
+                  Fecha y Hora *
+                </label>
+                <input
+                  type="datetime-local"
+                  className="form-input"
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  required
+                  style={{ width: '100%', fontSize: '0.85rem' }}
+                />
               </div>
 
               {/* RESULTADO / ESTATUS */}
@@ -1548,12 +1587,16 @@ export default function MemberFollowUpSheet({
               {/* DETALLE / NOTAS */}
               <div style={{ marginBottom: '1.4rem' }}>
                 <label className="form-label" style={{ marginBottom: '0.4rem', display: 'block', fontSize: '0.82rem', fontWeight: 600 }}>
-                  Detalle de la conversación o visita *
+                  {formType === 'inactivo' ? 'Motivo o Nota de Inactividad *' : 'Detalle de la conversación o visita *'}
                 </label>
                 <textarea
                   className="form-input"
                   rows={4}
-                  placeholder="Escribe lo conversado con el miembro, peticiones de oración, acuerdos o inquietudes manifestadas..."
+                  placeholder={
+                    formType === 'inactivo'
+                      ? 'Escribe el motivo por el cual la persona pasa a estar inactiva o en pausa (ej: mudanza, cambio de congregación, motivos laborales, etc.)...'
+                      : 'Escribe lo conversado con el miembro, peticiones de oración, acuerdos o inquietudes manifestadas...'
+                  }
                   value={formDetail}
                   onChange={(e) => setFormDetail(e.target.value)}
                   required
@@ -1562,7 +1605,7 @@ export default function MemberFollowUpSheet({
               </div>
 
               {/* MARCAR CONSOLIDADO SI CORRESPONDE */}
-              {!currentMember.is_consolidated && (
+              {formType !== 'inactivo' && !currentMember.is_consolidated && (
                 <div
                   style={{
                     display: 'flex',

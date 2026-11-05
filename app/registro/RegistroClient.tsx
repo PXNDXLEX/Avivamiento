@@ -24,6 +24,7 @@ import {
   Check,
   Phone,
   ClipboardList,
+  PauseCircle,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -52,6 +53,10 @@ export default function RegistroClient({ profile }: Props) {
   const [loading, setLoading] = useState(true);
   const [versiculo, setVersiculo] = useState({ texto: '', referencia: '' });
   const [mounted, setMounted] = useState(false);
+
+  /* Sub-tabs para separar activos e inactivos */
+  const [registrosSubTab, setRegistrosSubTab] = useState<'activos' | 'inactivos'>('activos');
+  const [seguimientoSubTab, setSeguimientoSubTab] = useState<'activos' | 'inactivos'>('activos');
 
   /* Follow-up state */
   const [selectedFollowUpMember, setSelectedFollowUpMember] = useState<Member | null>(null);
@@ -90,9 +95,6 @@ export default function RegistroClient({ profile }: Props) {
     setSelectedFollowUpMember(null);
     setActiveTab(tab);
   };
-
-  const [singleCasaId, setSingleCasaId] = useState<string | null>(null);
-
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -125,17 +127,7 @@ export default function RegistroClient({ profile }: Props) {
   useEffect(() => {
     fetchMembers();
     fetchProfiles();
-    supabase
-      .from('house_groups')
-      .select('id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .then(({ data }) => {
-        if (data && data[0]) {
-          setSingleCasaId(data[0].id);
-        }
-      });
-  }, [fetchMembers, fetchProfiles, supabase]);
+  }, [fetchMembers, fetchProfiles]);
 
   async function toggleConsolidado(member: Member) {
     const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;
@@ -191,17 +183,19 @@ export default function RegistroClient({ profile }: Props) {
     }
 
     setSaving(true);
-    // Validación de formato de teléfono venezolano
-    if (form.phone && form.phone.trim()) {
+    // Validación de formato de teléfono venezolano (opcional: si no tiene número, se permite guardar en blanco)
+    const digitsOnly = form.phone ? form.phone.replace(/\D/g, '') : '';
+    let cleanPhone: string | null = null;
+
+    if (digitsOnly) {
       const phoneVal = validarTelefonoVenezolano(form.phone);
       if (!phoneVal.isValid) {
         setError(phoneVal.error || 'Número de teléfono inválido.');
         setSaving(false);
         return;
       }
+      cleanPhone = phoneVal.cleanPhone;
     }
-
-    const cleanPhone = form.phone && form.phone.trim() ? validarTelefonoVenezolano(form.phone).cleanPhone : null;
 
     const payload = {
       full_name: form.full_name.trim(),
@@ -212,7 +206,7 @@ export default function RegistroClient({ profile }: Props) {
       phone: cleanPhone,
       status: form.status,
       is_consolidated: form.status === 'Consolidado',
-      house_group_id: singleCasaId,
+      house_group_id: null,
     };
 
     try {
@@ -250,11 +244,16 @@ export default function RegistroClient({ profile }: Props) {
     Reconciliado: 'badge-reconciliado',
     Visitante: 'badge-visitante',
     Consolidado: 'badge-consolidado',
+    Inactivo: 'badge-inactivo',
   };
 
   const myMembers = members.filter((m) => m.consolidator_id === profile.id);
 
   const filteredMembers = myMembers.filter((m) => {
+    // Separación estricta por submenú
+    if (registrosSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (registrosSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
+
     if (!search.trim()) return true;
     const q = search.toLowerCase().trim();
     return (
@@ -268,15 +267,23 @@ export default function RegistroClient({ profile }: Props) {
 
   const stats = {
     total: myMembers.length,
+    active: myMembers.filter((m) => m.status !== 'Inactivo').length,
     nuevo: myMembers.filter((m) => m.status === 'Nuevo').length,
     reconciliado: myMembers.filter((m) => m.status === 'Reconciliado').length,
     visitante: myMembers.filter((m) => m.status === 'Visitante').length,
-    consolidado: myMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    consolidado: myMembers.filter((m) => (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo').length,
+    inactivo: myMembers.filter((m) => m.status === 'Inactivo').length,
   };
 
-  const pendingConsolidation = myMembers.filter((m) => !m.is_consolidated);
+  const pendingConsolidation = myMembers.filter(
+    (m) => m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo'
+  );
 
   const seguimientoList = myMembers.filter((m) => {
+    // Separación estricta por submenú
+    if (seguimientoSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (seguimientoSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
+
     if (seguimientoSearch.trim()) {
       const q = seguimientoSearch.toLowerCase().trim();
       const match =
@@ -286,12 +293,16 @@ export default function RegistroClient({ profile }: Props) {
       if (!match) return false;
     }
 
-    if (seguimientoFilter === 'pending') {
-      return m.status !== 'Consolidado' && !m.is_consolidated;
-    } else if (seguimientoFilter === 'consolidated') {
-      return m.status === 'Consolidado' || m.is_consolidated;
+    if (seguimientoSubTab === 'inactivos') {
+      return true;
     }
-    return true; // 'mine': todos sus miembros asignados
+
+    if (seguimientoFilter === 'pending') {
+      return m.status !== 'Consolidado' && !m.is_consolidated && m.status !== 'Inactivo';
+    } else if (seguimientoFilter === 'consolidated') {
+      return (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo';
+    }
+    return m.status !== 'Inactivo';
   });
 
   const renderForm = () => (
@@ -358,14 +369,22 @@ export default function RegistroClient({ profile }: Props) {
           {form.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
           {form.status === 'Visitante' && '🚶 Visitante a consolidar'}
           {form.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+          {form.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-          {[
-            { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-            { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-            { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-            { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-          ].map((st) => {
+          {(editingId
+            ? [
+                { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+              ]
+            : [
+                { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+              ]
+          ).map((st) => {
             const isSel = form.status === st.key;
             return (
               <button
@@ -428,7 +447,7 @@ export default function RegistroClient({ profile }: Props) {
 
       <div className="form-group">
         <label htmlFor="phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Teléfono</span>
+          <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
         </label>
         <input
@@ -436,9 +455,8 @@ export default function RegistroClient({ profile }: Props) {
           className="form-input"
           type="tel"
           inputMode="numeric"
-          pattern="[0-9]*"
           maxLength={11}
-          placeholder="Ej: 04141234567"
+          placeholder="Ej: 04141234567 (opcional)"
           value={form.phone}
           onChange={(e) => {
             const clean = limpiarTelefonoInput(e.target.value);
@@ -454,7 +472,11 @@ export default function RegistroClient({ profile }: Props) {
               : undefined,
           }}
         />
-        {form.phone && (
+        {!form.phone ? (
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+            Puedes dejar este campo en blanco si la persona no tiene teléfono.
+          </p>
+        ) : (
           <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
             {(() => {
               const val = validarTelefonoVenezolano(form.phone);
@@ -769,12 +791,13 @@ export default function RegistroClient({ profile }: Props) {
                 <span>Nuevo Miembro</span>
               </button>
             </div>
-            <div className="grid-5">
+            <div className="grid-6">
               <StatCard label="Total Registrados" value={stats.total} color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} color="var(--color-nuevo)" />
               <StatCard label="Reconciliados" value={stats.reconciliado} color="var(--color-reconciliado)" />
               <StatCard label="Visitantes" value={stats.visitante} color="var(--color-visitante)" />
               <StatCard label="Consolidados" value={stats.consolidado} color="#10b981" />
+              <StatCard label="Inactivos" value={stats.inactivo} color="var(--color-inactivo)" />
             </div>
           </div>
         )}
@@ -800,25 +823,83 @@ export default function RegistroClient({ profile }: Props) {
               </button>
             </div>
 
-              {/* Buscador en tiempo real */}
-              <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
-                <Search
-                  size={16}
-                  style={{
-                    position: 'absolute',
-                    left: '1rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    color: 'var(--gold-primary)',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="Buscar por nombre, teléfono, municipio o estatus..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+            {/* Submenú de Registros: Activos vs Inactivos */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.6rem',
+                marginBottom: '1.25rem',
+                borderBottom: '1px solid var(--border-gold)',
+                paddingBottom: '0.75rem',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setRegistrosSubTab('activos')}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: registrosSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                  color: registrosSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                  border: registrosSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <Users size={16} />
+                <span>Mis Registros Activos ({stats.active})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRegistrosSubTab('inactivos')}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: registrosSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                  color: registrosSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                  border: registrosSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <PauseCircle size={16} />
+                <span>Inactivos / En Pausa ({stats.inactivo})</span>
+              </button>
+            </div>
+
+            {/* Buscador en tiempo real */}
+            <div style={{ position: 'relative', marginBottom: '1.25rem', width: '100%' }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: '1rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--gold-primary)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <input
+                className="form-input"
+                type="text"
+                placeholder={
+                  registrosSubTab === 'activos'
+                    ? "Buscar por nombre, teléfono, municipio o estatus..."
+                    : "Buscar miembros inactivos por nombre, teléfono o municipio..."
+                }
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                   style={{
                     padding: '0.65rem 2.2rem 0.65rem 2.5rem',
                     fontSize: '0.9rem',
@@ -885,7 +966,15 @@ export default function RegistroClient({ profile }: Props) {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
                   {filteredMembers.map((m) => (
-                    <div key={m.id} className="card" style={{ padding: '1.25rem' }}>
+                    <div
+                      key={m.id}
+                      className="card"
+                      style={{
+                        padding: '1.25rem',
+                        opacity: m.status === 'Inactivo' ? 0.55 : 1,
+                        filter: m.status === 'Inactivo' ? 'grayscale(0.6)' : 'none',
+                      }}
+                    >
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                           <div className="avatar-placeholder" style={{ width: 42, height: 42, fontSize: '1rem' }}>
@@ -963,7 +1052,25 @@ export default function RegistroClient({ profile }: Props) {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
                         <span className={`badge ${statusBadgeClass[m.status]}`}>{m.status}</span>
 
-                        {m.is_consolidated ? (
+                        {m.status === 'Inactivo' ? (
+                          <button
+                            onClick={() => setSelectedFollowUpMember(m)}
+                            className="btn btn-secondary"
+                            style={{
+                              fontSize: '0.75rem',
+                              padding: '0.3rem 0.65rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              color: '#9ca3af',
+                              borderColor: 'rgba(156, 163, 175, 0.4)',
+                            }}
+                            title="Ver ficha histórica o reactivar miembro"
+                          >
+                            <PauseCircle size={13} />
+                            En Pausa / Ficha
+                          </button>
+                        ) : m.is_consolidated ? (
                           <button
                             onClick={() => toggleConsolidado(m)}
                             className="badge"
@@ -1067,6 +1174,66 @@ export default function RegistroClient({ profile }: Props) {
                 </div>
               </div>
 
+              {/* Submenú de Seguimiento: Activos vs Inactivos */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.6rem',
+                  marginBottom: '1.25rem',
+                  borderBottom: '1px solid var(--border-gold)',
+                  paddingBottom: '0.75rem',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('activos');
+                    setSeguimientoFilter('mine');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <Phone size={16} />
+                  <span>Seguimiento Activo ({stats.active})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('inactivos');
+                    setSeguimientoFilter('mine');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <PauseCircle size={16} />
+                  <span>Inactivos / En Pausa ({stats.inactivo})</span>
+                </button>
+              </div>
+
               {/* Filtros */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 <div style={{ position: 'relative' }}>
@@ -1084,7 +1251,11 @@ export default function RegistroClient({ profile }: Props) {
                   <input
                     className="form-input"
                     type="text"
-                    placeholder="Buscar miembro o teléfono..."
+                    placeholder={
+                      seguimientoSubTab === 'activos'
+                        ? "Buscar miembro o teléfono..."
+                        : "Buscar miembro inactivo..."
+                    }
                     value={seguimientoSearch}
                     onChange={(e) => setSeguimientoSearch(e.target.value)}
                     style={{
@@ -1097,21 +1268,40 @@ export default function RegistroClient({ profile }: Props) {
                   />
                 </div>
 
-                <select
-                  className="form-select"
-                  value={seguimientoFilter}
-                  onChange={(e) => setSeguimientoFilter(e.target.value as any)}
-                  style={{
-                    padding: '0.65rem 1rem',
-                    fontSize: '0.85rem',
-                    background: 'var(--bg-secondary)',
-                    borderRadius: '8px',
-                  }}
-                >
-                  <option value="mine">Todos mis miembros ({myMembers.length})</option>
-                  <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
-                  <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
-                </select>
+                {seguimientoSubTab === 'activos' ? (
+                  <select
+                    className="form-select"
+                    value={seguimientoFilter}
+                    onChange={(e) => setSeguimientoFilter(e.target.value as any)}
+                    style={{
+                      padding: '0.65rem 1rem',
+                      fontSize: '0.85rem',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <option value="mine">Mis miembros activos ({stats.active})</option>
+                    <option value="pending">Mis pendientes de consolidar ({pendingConsolidation.length})</option>
+                    <option value="consolidated">Mis consolidados ({stats.consolidado})</option>
+                  </select>
+                ) : (
+                  <div
+                    style={{
+                      padding: '0.65rem 1rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.1)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
+                    }}
+                  >
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa asignados a ti</span>
+                  </div>
+                )}
               </div>
 
               {/* Members cards */}
@@ -1119,10 +1309,12 @@ export default function RegistroClient({ profile }: Props) {
                 <div className="card" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-muted)' }}>
                   <Phone size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
                   <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.3rem' }}>
-                    No hay miembros en esta vista
+                    {seguimientoSubTab === 'inactivos' ? 'No tienes miembros inactivos' : 'No hay miembros en esta vista'}
                   </p>
                   <p style={{ fontSize: '0.82rem' }}>
-                    No tienes registros en este filtro. Puedes registrar un nuevo miembro para iniciar su seguimiento.
+                    {seguimientoSubTab === 'inactivos'
+                      ? 'No hay registros marcados como inactivos en tu lista.'
+                      : 'No tienes registros activos en este filtro.'}
                   </p>
                 </div>
               ) : (
@@ -1138,6 +1330,8 @@ export default function RegistroClient({ profile }: Props) {
                         alignItems: 'center',
                         gap: '1rem',
                         flexWrap: 'wrap',
+                        opacity: m.status === 'Inactivo' ? 0.55 : 1,
+                        filter: m.status === 'Inactivo' ? 'grayscale(0.6)' : 'none',
                       }}
                     >
                       <div

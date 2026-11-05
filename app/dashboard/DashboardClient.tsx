@@ -48,6 +48,7 @@ import {
   BookOpen,
   Activity,
   CalendarDays,
+  CalendarCheck,
   Phone,
   MessageCircle,
   UserCheck,
@@ -60,8 +61,11 @@ import {
   FileText,
   TrendingUp,
   Clock,
+  Eye,
+  PauseCircle,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
+import ServiceAttendanceModule from '@/app/components/ServiceAttendanceModule';
 
 /* ─── Types & Constants ─────────────────────────────────── */
 interface Props {
@@ -73,6 +77,7 @@ const STATUS_COLORS: Record<string, string> = {
   Reconciliado: 'var(--color-reconciliado)',
   Visitante: 'var(--color-visitante)',
   Consolidado: '#10b981',
+  Inactivo: 'var(--color-inactivo)',
 };
 
 const CASA_COLORS = [
@@ -116,6 +121,12 @@ const FOLLOW_UP_TYPE_CONFIG: Record<
     color: '#8b5cf6',
     bg: 'rgba(139, 92, 246, 0.15)',
   },
+  inactivo: {
+    label: 'Inactivo',
+    icon: PauseCircle,
+    color: '#94a3b8',
+    bg: 'rgba(148, 163, 184, 0.15)',
+  },
 };
 
 const ROLE_LABELS: Record<Role, string> = {
@@ -125,7 +136,7 @@ const ROLE_LABELS: Record<Role, string> = {
   pastor: 'Pastor',
 };
 
-type ActiveTab = 'home' | 'members' | 'seguimiento' | 'reports' | 'users' | 'equipo';
+type ActiveTab = 'home' | 'members' | 'asistencia' | 'seguimiento' | 'reports' | 'casas' | 'users' | 'equipo';
 
 const TWENTY_MINUTES_MS = 20 * 60 * 1000;
 
@@ -343,13 +354,23 @@ export default function DashboardClient({ profile }: Props) {
   const supabase = createClient();
 
   /* Tab */
-  const [activeTab, setActiveTab] = useState<ActiveTab>(profile.role === 'pastor' ? 'reports' : 'home');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
   const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
+  const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar' | 'asistencia'>('gestionar');
+  const [selectedCasaAttendanceId, setSelectedCasaAttendanceId] = useState<string | null>(null);
+  const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
+  const [membersSubTab, setMembersSubTab] = useState<'activos' | 'inactivos'>('activos');
+  const [seguimientoSubTab, setSeguimientoSubTab] = useState<'activos' | 'inactivos'>('activos');
 
   /* Follow-ups state for report */
   const [allFollowUps, setAllFollowUps] = useState<MemberFollowUp[]>([]);
   const [loadingFollowUps, setLoadingFollowUps] = useState(false);
   const [reportFollowUpTypeFilter, setReportFollowUpTypeFilter] = useState<string>('all');
+
+  /* Asignar Miembros state */
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignSelectedCasa, setAssignSelectedCasa] = useState('');
+  const [assigningMember, setAssigningMember] = useState<string | null>(null);
 
   /* Date Filter */
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
@@ -371,22 +392,16 @@ export default function DashboardClient({ profile }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  /* Casa de Dios única */
-  const [singleCasa, setSingleCasa] = useState<HouseGroup | null>(null);
-  const [singleCasaModal, setSingleCasaModal] = useState(false);
-  const [singleCasaForm, setSingleCasaForm] = useState({
-    name: '',
-    address: '',
-    municipio: '',
-  });
-  const [savingSingleCasa, setSavingSingleCasa] = useState(false);
-  const [singleCasaError, setSingleCasaError] = useState('');
-  const houseGroups = useMemo(() => (singleCasa ? [singleCasa] : []), [singleCasa]);
+  /* Casas de Dios y Asistencias */
+  const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [houseGroupMeetings, setHouseGroupMeetings] = useState<HouseGroupMeeting[]>([]);
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
     open: boolean;
     member?: Member;
+    isReadOnly?: boolean;
   }>({ open: false });
   const emptyMemberForm = {
     full_name: '',
@@ -437,6 +452,26 @@ export default function DashboardClient({ profile }: Props) {
   /* Delete confirm */
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  /* Casa modal */
+  const [casaModal, setCasaModal] = useState<{
+    open: boolean;
+    casa?: HouseGroup;
+  }>({ open: false });
+  const emptyCasaForm = {
+    name: '',
+    address: '',
+    municipio: '',
+    leader_id: '',
+  };
+  const [casaForm, setCasaForm] = useState(emptyCasaForm);
+  const [savingCasa, setSavingCasa] = useState(false);
+  const [casaError, setCasaError] = useState('');
+
+  /* Service History Modal */
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; houseGroupId?: string; houseGroupName?: string }>({ open: false });
+
+  const [deleteCasaConfirm, setDeleteCasaConfirm] = useState<string | null>(null);
+
   /* Toast */
   const [toast, setToast] = useState<{
     msg: string;
@@ -485,55 +520,19 @@ export default function DashboardClient({ profile }: Props) {
   }, [supabase, profile]);
 
   const fetchCasasData = useCallback(async () => {
+    // El consolidador no gestiona ni ve Casas de Dios
+    if (profile.role === 'user') return;
     try {
-      const { data, error } = await supabase
-        .from('house_groups')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        const primary = data[0];
-        setSingleCasa(primary);
-        setSingleCasaForm({
-          name: primary.name || '',
-          address: primary.address || '',
-          municipio: primary.municipio || '',
-        });
-
-        // Limpiar cualquier casa duplicada previa y reasignar sus miembros a la casa única
-        if (data.length > 1 && (profile.role === 'principal' || profile.role === 'admin')) {
-          const extraIds = data.slice(1).map((c) => c.id);
-          await supabase.from('members').update({ house_group_id: primary.id }).in('house_group_id', extraIds);
-          await supabase.from('house_group_meetings').delete().in('house_group_id', extraIds);
-          await supabase.from('house_groups').delete().in('id', extraIds);
-        }
-
-        // Asignar todos los miembros que aún no tengan casa vinculada a la Casa de Dios única
-        if (profile.role === 'principal' || profile.role === 'admin') {
-          await supabase.from('members').update({ house_group_id: primary.id }).is('house_group_id', null);
-        }
-      } else if (profile.role === 'principal' || profile.role === 'admin') {
-        const { data: created, error: createErr } = await supabase
-          .from('house_groups')
-          .insert({
-            name: 'Avivamiento León de la Tribu de Judá',
-            address: 'Sede Principal',
-            municipio: 'García',
-          })
-          .select('*')
-          .single();
-        if (!createErr && created) {
-          setSingleCasa(created);
-          setSingleCasaForm({
-            name: created.name || '',
-            address: created.address || '',
-            municipio: created.municipio || '',
-          });
-          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
-        }
-      }
-    } catch {
-      // Ignorar errores silenciosamente
+      const [{ data: hgData }, { data: attData }, { data: meetData }] = await Promise.all([
+        supabase.from('house_groups').select('*'),
+        supabase.from('attendances').select('*'),
+        supabase.from('house_group_meetings').select('*')
+      ]);
+      setHouseGroups(hgData ?? []);
+      setAttendances(attData ?? []);
+      setHouseGroupMeetings(meetData ?? []);
+    } catch (e) {
+      // Ignorar de forma silenciosa si las tablas no existen todavía
     }
   }, [supabase, profile.role]);
 
@@ -588,7 +587,7 @@ export default function DashboardClient({ profile }: Props) {
 
     setAllFollowUps(loadedRecords);
     setLoadingFollowUps(false);
-  }, [supabase, profile.role]);
+  }, [supabase]);
 
   useEffect(() => {
     fetchMembers();
@@ -607,10 +606,10 @@ export default function DashboardClient({ profile }: Props) {
   }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
 
   useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'reports') {
+    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
       fetchProfiles();
     }
-    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports') {
+    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas' || activeTab === 'asistencia') {
       fetchCasasData();
     }
     if (activeTab === 'reports' || activeTab === 'seguimiento') {
@@ -688,11 +687,17 @@ export default function DashboardClient({ profile }: Props) {
   }, [profile.role, fetchProfiles]);
 
   /* ── Derived state ── */
-  const filteredMembers = members.filter((m) => {
-    // Si el rol es consolidador, NUNCA ver miembros ajenos
-    if (profile.role === 'user' && m.consolidator_id !== profile.id) {
-      return false;
+  const visibleMembersForUser = useMemo(() => {
+    if (profile.role === 'user') {
+      return members.filter((m) => m.consolidator_id === profile.id);
     }
+    return members;
+  }, [members, profile.role, profile.id]);
+
+  const filteredMembers = visibleMembersForUser.filter((m) => {
+    // Separación estricta por submenú
+    if (membersSubTab === 'activos' && m.status === 'Inactivo') return false;
+    if (membersSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
 
     const q = search.toLowerCase();
     const matchSearch =
@@ -700,7 +705,12 @@ export default function DashboardClient({ profile }: Props) {
       (m.municipio ?? '').toLowerCase().includes(q) ||
       (m.phone ?? '').toLowerCase().includes(q) ||
       (m.consolidator_name || '').toLowerCase().includes(q);
-    const matchStatus = filterStatus === 'all' || m.status === filterStatus;
+
+    const matchStatus = membersSubTab === 'inactivos'
+      ? true
+      : filterStatus === 'all'
+        ? true
+        : m.status === filterStatus;
     
     // 2. Date filter
     let matchDate = true;
@@ -726,11 +736,10 @@ export default function DashboardClient({ profile }: Props) {
   });
 
   const seguimientoMembers: Member[] = useMemo(() => {
-    return members.filter((m) => {
-      // Si el rol es consolidador, NUNCA ver miembros ajenos
-      if (profile.role === 'user' && m.consolidator_id !== profile.id) {
-        return false;
-      }
+    return visibleMembersForUser.filter((m) => {
+      // Separación estricta por submenú
+      if (seguimientoSubTab === 'activos' && m.status === 'Inactivo') return false;
+      if (seguimientoSubTab === 'inactivos' && m.status !== 'Inactivo') return false;
 
       const q = search.toLowerCase();
       const matchSearch =
@@ -750,12 +759,17 @@ export default function DashboardClient({ profile }: Props) {
         if (m.consolidator_id !== seguimientoConsolidatorFilter) return false;
       }
 
-      // Filtro por estatus
+      // En la pestaña de inactivos, no aplica filtro de estatus de activos
+      if (seguimientoSubTab === 'inactivos') {
+        return true;
+      }
+
+      // Filtro por estatus en activos
       if (seguimientoStatusFilter !== 'all') {
         if (seguimientoStatusFilter === 'pending') {
-          if (m.is_consolidated) return false;
+          if (m.is_consolidated || m.status === 'Inactivo') return false;
         } else if (seguimientoStatusFilter === 'consolidated') {
-          if (!m.is_consolidated) return false;
+          if (!m.is_consolidated || m.status === 'Inactivo') return false;
         } else {
           if (m.status !== seguimientoStatusFilter) return false;
         }
@@ -763,14 +777,16 @@ export default function DashboardClient({ profile }: Props) {
 
       return true;
     });
-  }, [members, search, profile.role, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter]);
+  }, [visibleMembersForUser, search, profile.id, seguimientoConsolidatorFilter, seguimientoStatusFilter, seguimientoSubTab]);
 
   const stats = {
-    total: members.length,
-    nuevo: members.filter((m) => m.status === 'Nuevo').length,
-    reconciliado: members.filter((m) => m.status === 'Reconciliado').length,
-    visitante: members.filter((m) => m.status === 'Visitante').length,
-    consolidado: members.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length,
+    total: visibleMembersForUser.length,
+    active: visibleMembersForUser.filter((m) => m.status !== 'Inactivo').length,
+    nuevo: visibleMembersForUser.filter((m) => m.status === 'Nuevo').length,
+    reconciliado: visibleMembersForUser.filter((m) => m.status === 'Reconciliado').length,
+    visitante: visibleMembersForUser.filter((m) => m.status === 'Visitante').length,
+    consolidado: visibleMembersForUser.filter((m) => (m.status === 'Consolidado' || m.is_consolidated) && m.status !== 'Inactivo').length,
+    inactivo: visibleMembersForUser.filter((m) => m.status === 'Inactivo').length,
   };
 
   const statusChartData = [
@@ -789,6 +805,11 @@ export default function DashboardClient({ profile }: Props) {
       name: 'Consolidados',
       value: stats.consolidado,
       color: STATUS_COLORS.Consolidado,
+    },
+    {
+      name: 'Inactivos',
+      value: stats.inactivo,
+      color: STATUS_COLORS.Inactivo,
     },
   ];
 
@@ -828,6 +849,54 @@ export default function DashboardClient({ profile }: Props) {
     return { name: item.name, 'Nuevos': item.value, 'Total': cumulative };
   });
 
+  /* Casas de Dios Data - Asistencias agrupadas por fecha y por Casa de Dios */
+  const attendanceByDateAndHouse: Record<string, Record<string, number>> = {};
+
+  const filteredMeetings = houseGroupMeetings.filter(meeting => {
+    if (dateFilter === 'all') return true;
+    const meetingDate = new Date(meeting.date + 'T12:00:00Z');
+    const now = new Date();
+    if (dateFilter === 'today') {
+      return meetingDate.toDateString() === now.toDateString();
+    } else if (dateFilter === 'week') {
+      const diff = now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1);
+      const startOfWeek = new Date(new Date().setDate(diff));
+      startOfWeek.setHours(0, 0, 0, 0);
+      return meetingDate >= startOfWeek;
+    } else if (dateFilter === 'month') {
+      return meetingDate.getMonth() === now.getMonth() && meetingDate.getFullYear() === now.getFullYear();
+    } else if (dateFilter === 'year') {
+      return meetingDate.getFullYear() === now.getFullYear();
+    }
+    return true;
+  });
+
+  filteredMeetings.forEach((meeting) => {
+    const dateKey = meeting.date;
+    const attendeesCount = attendances.filter((a) => a.meeting_id === meeting.id).length;
+    if (!attendanceByDateAndHouse[dateKey]) {
+      attendanceByDateAndHouse[dateKey] = {};
+    }
+    attendanceByDateAndHouse[dateKey][meeting.house_group_id] =
+      (attendanceByDateAndHouse[dateKey][meeting.house_group_id] || 0) + attendeesCount;
+  });
+
+  const sortedMeetingDates = Object.keys(attendanceByDateAndHouse).sort(
+    (a, b) => new Date(a).getTime() - new Date(b).getTime()
+  );
+
+  const casasTimelineData = sortedMeetingDates.map((dateKey) => {
+    const point: Record<string, any> = {
+      fecha: formatearFechaCorta(dateKey),
+      rawDate: dateKey,
+    };
+    houseGroups.forEach((hg) => {
+      point[hg.name] = attendanceByDateAndHouse[dateKey][hg.id] ?? 0;
+    });
+    return point;
+  });
+
+  const activeRegularMembers = new Set(attendances.map(a => a.member_id)).size;
 
   /* ── Seguimiento General Data Calculations ── */
   const filteredFollowUps = useMemo(() => {
@@ -963,18 +1032,41 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Member CRUD ── */
   function openAddMember() {
+    if (profile.role === 'pastor') return;
     if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       ...emptyMemberForm,
       consolidator_id: profile.id,
-      house_group_id: singleCasa?.id || '',
+      house_group_id: '',
     });
     setMemberError('');
     setMemberModal({ open: true });
   }
 
+  function openViewMember(member: Member) {
+    setMemberForm({
+      full_name: member.full_name,
+      age: member.age?.toString() ?? '',
+      gender: member.gender ?? '',
+      municipio: member.municipio ?? '',
+      address: member.address ?? '',
+      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
+      status: member.status,
+      consolidator_id: member.consolidator_id || '',
+      house_group_id: member.house_group_id || '',
+    });
+    setMemberError('');
+    setMemberModal({ open: true, member, isReadOnly: true });
+  }
+
   function openEditMember(member: Member) {
+    if (profile.role === 'pastor') {
+      openViewMember(member);
+      return;
+    }
     if (profiles.length === 0) fetchProfiles();
+    if (houseGroups.length === 0) fetchCasasData();
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
@@ -984,32 +1076,37 @@ export default function DashboardClient({ profile }: Props) {
       phone: member.phone ? member.phone.replace(/\D/g, '') : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
-      house_group_id: member.house_group_id || singleCasa?.id || '',
+      house_group_id: member.house_group_id || '',
     });
     setMemberError('');
-    setMemberModal({ open: true, member });
+    setMemberModal({ open: true, member, isReadOnly: false });
   }
 
   async function saveMember() {
+    if (profile.role === 'pastor' || memberModal.isReadOnly) {
+      showToast('El usuario pastor es solo de visualización.', 'error');
+      return;
+    }
     if (!memberForm.full_name.trim()) {
       setMemberError('El nombre completo es requerido.');
       return;
     }
 
-    if (memberForm.phone && memberForm.phone.trim()) {
+    // Validación de teléfono venezolano (opcional: si no tiene teléfono se permite guardar en blanco)
+    const digitsOnly = memberForm.phone ? memberForm.phone.replace(/\D/g, '') : '';
+    let cleanMemberPhone: string | null = null;
+
+    if (digitsOnly) {
       const phoneVal = validarTelefonoVenezolano(memberForm.phone);
       if (!phoneVal.isValid) {
         setMemberError(phoneVal.error || 'Número de teléfono inválido.');
         return;
       }
+      cleanMemberPhone = phoneVal.cleanPhone;
     }
 
     setSavingMember(true);
     setMemberError('');
-
-    const cleanMemberPhone = memberForm.phone && memberForm.phone.trim()
-      ? validarTelefonoVenezolano(memberForm.phone).cleanPhone
-      : null;
 
     const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
 
@@ -1022,7 +1119,7 @@ export default function DashboardClient({ profile }: Props) {
       phone: cleanMemberPhone,
       status: memberForm.status,
       is_consolidated: memberForm.status === 'Consolidado',
-      house_group_id: singleCasa?.id || memberModal.member?.house_group_id || null,
+      house_group_id: memberForm.house_group_id || null,
       consolidator_id: chosenConsolidator.id,
       consolidator_name: chosenConsolidator.full_name,
     };
@@ -1067,6 +1164,10 @@ export default function DashboardClient({ profile }: Props) {
   }
 
   async function confirmDelete(id: string) {
+    if (profile.role === 'pastor') {
+      showToast('El usuario pastor es solo de visualización.', 'error');
+      return;
+    }
     const { error } = await supabase
       .from('members')
       .update({ deleted_at: new Date().toISOString() })
@@ -1109,18 +1210,20 @@ export default function DashboardClient({ profile }: Props) {
       setUserError('Usuario y nombre son requeridos para editar.');
       return;
     }
-    if (userForm.phone && userForm.phone.trim()) {
+    const userPhoneDigits = userForm.phone ? userForm.phone.replace(/\D/g, '') : '';
+    let cleanUserPhone = '';
+
+    if (userPhoneDigits) {
       const phoneVal = validarTelefonoVenezolano(userForm.phone);
       if (!phoneVal.isValid) {
         setUserError(phoneVal.error || 'Número de teléfono inválido.');
         return;
       }
+      cleanUserPhone = phoneVal.cleanPhone;
     }
+
     setSavingUser(true);
     setUserError('');
-    const cleanUserPhone = userForm.phone && userForm.phone.trim()
-      ? validarTelefonoVenezolano(userForm.phone).cleanPhone
-      : '';
     const userPayload = { ...userForm, phone: cleanUserPhone };
     try {
       if (userModal.userId) {
@@ -1187,53 +1290,58 @@ export default function DashboardClient({ profile }: Props) {
     }
   }
 
-  /* ── Casa de Dios única (Gestión exclusiva de Administrador / Principal) ── */
-  async function handleSaveSingleCasa() {
-    if (!singleCasaForm.name.trim()) {
-      setSingleCasaError('El nombre de la Casa de Dios es obligatorio.');
+  /* ── Casas management ── */
+  async function saveCasa() {
+    if (!casaForm.name.trim()) {
+      setCasaError('El nombre es requerido.');
       return;
     }
-    setSavingSingleCasa(true);
-    setSingleCasaError('');
+    setSavingCasa(true);
+    setCasaError('');
 
     const payload = {
-      name: singleCasaForm.name.trim(),
-      address: singleCasaForm.address.trim() || null,
-      municipio: singleCasaForm.municipio || null,
+      name: casaForm.name.trim(),
+      address: casaForm.address || null,
+      municipio: casaForm.municipio || null,
+      leader_id: casaForm.leader_id || null,
     };
 
     try {
-      if (singleCasa?.id) {
+      if (casaModal.casa) {
         const { error } = await supabase
           .from('house_groups')
           .update(payload)
-          .eq('id', singleCasa.id);
+          .eq('id', casaModal.casa.id);
         if (error) throw error;
-        setSingleCasa((prev) => (prev ? { ...prev, ...payload } : null));
+        showToast('Casa de Dios actualizada.');
       } else {
-        const { data: created, error } = await supabase
-          .from('house_groups')
-          .insert(payload)
-          .select('*')
-          .single();
+        const { error } = await supabase.from('house_groups').insert(payload);
         if (error) throw error;
-        if (created) {
-          setSingleCasa(created);
-          await supabase.from('members').update({ house_group_id: created.id }).is('house_group_id', null);
-        }
+        showToast('Casa de Dios registrada.');
       }
-      showToast('Casa de Dios actualizada exitosamente.');
-      setSingleCasaModal(false);
-      fetchMembers();
+      setCasaModal({ open: false });
+      fetchCasasData();
     } catch (err: unknown) {
-      setSingleCasaError(err instanceof Error ? err.message : 'Error al guardar Casa de Dios.');
+      setCasaError(err instanceof Error ? err.message : 'Error al guardar.');
     } finally {
-      setSavingSingleCasa(false);
+      setSavingCasa(false);
     }
+  }
+
+  async function confirmDeleteCasa(id: string) {
+    const { error } = await supabase.from('house_groups').delete().eq('id', id);
+    if (error) {
+      showToast('Error al eliminar (puede tener asistencias asociadas).', 'error');
+    } else {
+      showToast('Casa de Dios eliminada.');
+      fetchCasasData();
+    }
+    setDeleteCasaConfirm(null);
   }
 
   /* ── Tabs config ── */
   const tabs = profile.role === 'pastor' ? [
+    { key: 'home' as ActiveTab, icon: <Home size={15} />, label: 'Inicio' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
     { key: 'equipo' as ActiveTab, icon: <Users size={15} />, label: 'Equipo' },
   ] : profile.role === 'user' ? [
@@ -1245,6 +1353,7 @@ export default function DashboardClient({ profile }: Props) {
     { key: 'members' as ActiveTab, icon: <Users size={15} />, label: 'Miembros' },
     { key: 'seguimiento' as ActiveTab, icon: <Phone size={15} />, label: 'Seguimiento' },
     { key: 'reports' as ActiveTab, icon: <BarChart2 size={15} />, label: 'Reportes' },
+    { key: 'casas' as ActiveTab, icon: <Flame size={15} />, label: 'Casa de Dios' },
     ...(profile.role === 'principal' || profile.role === 'admin'
       ? [
           {
@@ -1256,22 +1365,41 @@ export default function DashboardClient({ profile }: Props) {
       : []),
   ];
 
-  /* Guardia para rol user: no permitir pestañas no autorizadas */
+  /* Redirigir asistencia a Casas de Dios */
   useEffect(() => {
-    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'users' || activeTab === 'equipo')) {
+    if (activeTab === 'asistencia') {
+      setActiveTab('casas');
+      setCasasSubTab('gestionar');
+    }
+  }, [activeTab]);
+
+  /* Guardia para roles user y pastor: no permitir pestañas no autorizadas */
+  useEffect(() => {
+    if (profile.role === 'user' && (activeTab === 'reports' || activeTab === 'casas' || activeTab === 'users' || activeTab === 'equipo' || activeTab === 'asistencia')) {
+      setActiveTab('home');
+    }
+    if (profile.role === 'pastor' && activeTab !== 'home' && activeTab !== 'reports' && activeTab !== 'equipo') {
       setActiveTab('home');
     }
   }, [profile.role, activeTab]);
 
-  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear la ficha abierta para regresar siempre al menú principal de seguimiento */
+  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear las vistas abiertas para regresar siempre al menú principal */
   useEffect(() => {
     if (activeTab !== 'seguimiento') {
       setSelectedFollowUpMember(null);
+    }
+    if (activeTab !== 'casas') {
+      setCasasSubTab('gestionar');
+      setSelectedCasaAttendanceId(null);
     }
   }, [activeTab]);
 
   const handleTabClick = (tabKey: ActiveTab) => {
     setSelectedFollowUpMember(null);
+    if (tabKey === 'casas') {
+      setCasasSubTab('gestionar');
+      setSelectedCasaAttendanceId(null);
+    }
     setActiveTab(tabKey);
   };
 
@@ -1296,64 +1424,14 @@ export default function DashboardClient({ profile }: Props) {
         </div>
 
         <div style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', margin: 0 }}>Mi Perfil</p>
-            {(profile.role === 'principal' || profile.role === 'admin') && (
-              <button
-                onClick={() => {
-                  setSingleCasaError('');
-                  setSingleCasaModal(true);
-                }}
-                className="btn-icon"
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  background: 'rgba(212, 175, 55, 0.12)',
-                  border: '1px solid var(--border-gold)',
-                  borderRadius: '6px',
-                  color: 'var(--gold-primary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                title="Configuración de Casa de Dios (Nombre y Dirección)"
-              >
-                <Edit2 size={12} />
-              </button>
-            )}
-          </div>
-          <div
-            onClick={() => {
-              if (profile.role === 'principal' || profile.role === 'admin') {
-                setSingleCasaError('');
-                setSingleCasaModal(true);
-              }
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default',
-              padding: '0.4rem',
-              borderRadius: '8px',
-              transition: 'background 0.2s',
-            }}
-            title={(profile.role === 'principal' || profile.role === 'admin') ? 'Click para editar Casa de Dios' : ''}
-          >
+          <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.75rem' }}>Mi Perfil</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div className="avatar-placeholder" style={{ width: 40, height: 40, fontSize: '1rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>{profile.full_name}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
-                {singleCasa && (
-                  <span style={{ fontSize: '0.68rem', color: 'var(--gold-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    🏠 {singleCasa.name}
-                  </span>
-                )}
-              </div>
+            <div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.65rem' }}>{ROLE_LABELS[profile.role]}</span>
             </div>
           </div>
         </div>
@@ -1379,26 +1457,13 @@ export default function DashboardClient({ profile }: Props) {
       <main className="main-content">
         {/* Mobile Header (Hidden on Desktop) */}
         <div className="hide-on-desktop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div
-            onClick={() => {
-              if (profile.role === 'principal' || profile.role === 'admin') {
-                setSingleCasaError('');
-                setSingleCasaModal(true);
-              }
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: (profile.role === 'principal' || profile.role === 'admin') ? 'pointer' : 'default' }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div className="avatar-placeholder" style={{ width: 36, height: 36, fontSize: '0.9rem' }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>{profile.full_name}</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
-                <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
-                {(profile.role === 'principal' || profile.role === 'admin') && (
-                  <span style={{ fontSize: '0.65rem', color: 'var(--gold-primary)' }}>✏️ Casa de Dios</span>
-                )}
-              </div>
+              <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>{profile.full_name}</p>
+              <span className={`badge badge-${profile.role}`} style={{ fontSize: '0.6rem' }}>{ROLE_LABELS[profile.role]}</span>
             </div>
           </div>
           <form action={signOut}>
@@ -1461,21 +1526,24 @@ export default function DashboardClient({ profile }: Props) {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
               <h2 className="font-cinzel" style={{ fontSize: '1.2rem', margin: 0 }}>Resumen de Registros</h2>
-              <button
-                onClick={openAddMember}
-                className="btn btn-primary"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
-              >
-                <Plus size={16} />
-                <span>Nuevo Miembro</span>
-              </button>
+              {profile.role !== 'pastor' && (
+                <button
+                  onClick={openAddMember}
+                  className="btn btn-primary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.55rem 1rem', fontSize: '0.85rem', fontWeight: 600 }}
+                >
+                  <Plus size={16} />
+                  <span>Nuevo Miembro</span>
+                </button>
+              )}
             </div>
-            <div className="grid-5" style={{ marginBottom: '2rem' }}>
+            <div className="grid-6" style={{ marginBottom: '2rem' }}>
               <StatCard label="Total Miembros" value={stats.total} icon="👥" color="var(--gold-primary)" />
               <StatCard label="Nuevos" value={stats.nuevo} icon="✨" color={STATUS_COLORS.Nuevo} />
               <StatCard label="Reconciliados" value={stats.reconciliado} icon="🕊️" color={STATUS_COLORS.Reconciliado} />
               <StatCard label="Visitantes" value={stats.visitante} icon="🚶" color={STATUS_COLORS.Visitante} />
               <StatCard label="Consolidados" value={stats.consolidado} icon="🛡️" color={STATUS_COLORS.Consolidado} />
+              <StatCard label="Inactivos" value={stats.inactivo} icon="⏸️" color={STATUS_COLORS.Inactivo} />
             </div>
           </div>
         )}
@@ -1484,6 +1552,66 @@ export default function DashboardClient({ profile }: Props) {
         {/* ── Members Tab ── */}
         {activeTab === 'members' && (
           <div className="animate-fade-in">
+            {/* Submenú de Miembros: Activos vs Inactivos */}
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.6rem',
+                marginBottom: '1.25rem',
+                borderBottom: '1px solid var(--border-gold)',
+                paddingBottom: '0.75rem',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setMembersSubTab('activos');
+                  setFilterStatus('all');
+                }}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: membersSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                  color: membersSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                  border: membersSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <Users size={16} />
+                <span>Miembros Activos ({stats.active})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMembersSubTab('inactivos');
+                  setFilterStatus('all');
+                }}
+                className="btn"
+                style={{
+                  padding: '0.55rem 1.15rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: membersSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                  color: membersSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                  border: membersSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <PauseCircle size={16} />
+                <span>Inactivos / En Pausa ({stats.inactivo})</span>
+              </button>
+            </div>
+
             {/* Buscador optimizado de ancho completo */}
             <div style={{ marginBottom: '1.5rem', width: '100%' }}>
               <div style={{ position: 'relative', width: '100%' }}>
@@ -1502,7 +1630,11 @@ export default function DashboardClient({ profile }: Props) {
                   className="form-input"
                   id="member-search"
                   type="text"
-                  placeholder="Búsqueda rápida por nombre, teléfono o municipio..."
+                  placeholder={
+                    membersSubTab === 'activos'
+                      ? "Búsqueda rápida de miembros activos por nombre, teléfono o municipio..."
+                      : "Búsqueda de miembros inactivos por nombre, teléfono o municipio..."
+                  }
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   style={{ 
@@ -1528,21 +1660,40 @@ export default function DashboardClient({ profile }: Props) {
               }}
             >
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => setFilterStatus(s)}
-                    className={`btn ${
-                      filterStatus === s ? 'btn-primary' : 'btn-secondary'
-                    }`}
+                {membersSubTab === 'activos' ? (
+                  ['all', 'Nuevo', 'Reconciliado', 'Visitante', 'Consolidado'].map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setFilterStatus(s)}
+                      className={`btn ${
+                        filterStatus === s ? 'btn-primary' : 'btn-secondary'
+                      }`}
+                      style={{
+                        padding: '0.55rem 0.85rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      {s === 'all' ? 'Todos' : s}
+                    </button>
+                  ))
+                ) : (
+                  <div
                     style={{
-                      padding: '0.55rem 0.85rem',
-                      fontSize: '0.8rem',
+                      padding: '0.5rem 0.85rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.12)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
                     }}
                   >
-                    {s === 'all' ? 'Todos' : s}
-                  </button>
-                ))}
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa o que dejaron de asistir</span>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1582,15 +1733,17 @@ export default function DashboardClient({ profile }: Props) {
                   </button>
                 )}
 
-                <button
-                  onClick={openAddMember}
-                  className="btn btn-primary"
-                  id="add-member-btn"
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  <Plus size={16} />
-                  Nuevo Miembro
-                </button>
+                {profile.role !== 'pastor' && (
+                  <button
+                    onClick={openAddMember}
+                    className="btn btn-primary"
+                    id="add-member-btn"
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    <Plus size={16} />
+                    Nuevo Miembro
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1809,12 +1962,25 @@ export default function DashboardClient({ profile }: Props) {
                       <th>Teléfono</th>
                       <th>Consolidador</th>
                       <th>Registrado</th>
-                      <th style={{ textAlign: 'center' }}>Acciones</th>
+                      <th style={{ textAlign: 'center' }}>
+                        {profile.role === 'pastor' ? 'Detalles' : 'Acciones'}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredMembers.map((member) => (
-                      <tr key={member.id}>
+                      <tr
+                        key={member.id}
+                        style={
+                          member.status === 'Inactivo'
+                            ? {
+                                opacity: 0.55,
+                                filter: 'grayscale(0.6)',
+                                background: 'rgba(255, 255, 255, 0.02)',
+                              }
+                            : undefined
+                        }
+                      >
                         <td>
                           <div
                             style={{
@@ -1949,54 +2115,68 @@ export default function DashboardClient({ profile }: Props) {
                               justifyContent: 'center',
                             }}
                           >
-                            <button
-                              onClick={() => openEditMember(member)}
-                              className="btn btn-secondary btn-icon"
-                              title="Editar"
-                              aria-label="Editar miembro"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setSelectedFollowUpMember(member);
-                                setActiveTab('seguimiento');
-                              }}
-                              className="btn btn-secondary btn-icon"
-                              title="Ficha de Seguimiento e Histórico"
-                              aria-label="Ficha de seguimiento"
-                              style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
-                            >
-                              <ClipboardList size={13} />
-                            </button>
-
-                            {deleteConfirm === member.id ? (
+                            {profile.role === 'pastor' ? (
+                              <button
+                                onClick={() => openViewMember(member)}
+                                className="btn btn-secondary btn-icon"
+                                title="Ver detalles del miembro"
+                                aria-label="Ver detalles"
+                                style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                              >
+                                <Eye size={13} />
+                              </button>
+                            ) : (
                               <>
                                 <button
-                                  onClick={() => confirmDelete(member.id)}
-                                  className="btn btn-danger btn-icon"
-                                  title="Confirmar eliminación"
-                                >
-                                  <Check size={13} />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirm(null)}
+                                  onClick={() => openEditMember(member)}
                                   className="btn btn-secondary btn-icon"
-                                  title="Cancelar"
+                                  title="Editar"
+                                  aria-label="Editar miembro"
                                 >
-                                  <X size={13} />
+                                  <Edit2 size={13} />
                                 </button>
+
+                                <button
+                                  onClick={() => {
+                                    setSelectedFollowUpMember(member);
+                                    setActiveTab('seguimiento');
+                                  }}
+                                  className="btn btn-secondary btn-icon"
+                                  title="Ficha de Seguimiento e Histórico"
+                                  aria-label="Ficha de seguimiento"
+                                  style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)' }}
+                                >
+                                  <ClipboardList size={13} />
+                                </button>
+
+                                {deleteConfirm === member.id ? (
+                                  <>
+                                    <button
+                                      onClick={() => confirmDelete(member.id)}
+                                      className="btn btn-danger btn-icon"
+                                      title="Confirmar eliminación"
+                                    >
+                                      <Check size={13} />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirm(null)}
+                                      className="btn btn-secondary btn-icon"
+                                      title="Cancelar"
+                                    >
+                                      <X size={13} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setDeleteConfirm(member.id)}
+                                    className="btn btn-danger btn-icon"
+                                    title="Eliminar"
+                                    aria-label="Eliminar miembro"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
                               </>
-                            ) : (
-                              <button
-                                onClick={() => setDeleteConfirm(member.id)}
-                                className="btn btn-danger btn-icon"
-                                title="Eliminar"
-                                aria-label="Eliminar miembro"
-                              >
-                                <Trash2 size={13} />
-                              </button>
                             )}
                           </div>
                         </td>
@@ -2022,6 +2202,8 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
+
+
         {/* ── Seguimiento Tab ── */}
         {activeTab === 'seguimiento' && (
           selectedFollowUpMember ? (
@@ -2043,7 +2225,7 @@ export default function DashboardClient({ profile }: Props) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  marginBottom: '1.5rem',
+                  marginBottom: '1.25rem',
                   flexWrap: 'wrap',
                   gap: '1rem',
                 }}
@@ -2056,6 +2238,66 @@ export default function DashboardClient({ profile }: Props) {
                     Registra y consulta el histórico de llamadas, visitas presenciales y mensajes de seguimiento pastoral.
                   </p>
                 </div>
+              </div>
+
+              {/* Submenú de Seguimiento: Activos vs Inactivos */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.6rem',
+                  marginBottom: '1.25rem',
+                  borderBottom: '1px solid var(--border-gold)',
+                  paddingBottom: '0.75rem',
+                  alignItems: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('activos');
+                    setSeguimientoStatusFilter('all');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'activos' ? 'var(--gold-primary)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'activos' ? '#000' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'activos' ? '1px solid var(--gold-primary)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <Phone size={16} />
+                  <span>Seguimiento Activo ({stats.active})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSeguimientoSubTab('inactivos');
+                    setSeguimientoStatusFilter('all');
+                  }}
+                  className="btn"
+                  style={{
+                    padding: '0.55rem 1.15rem',
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: seguimientoSubTab === 'inactivos' ? 'rgba(156, 163, 175, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                    color: seguimientoSubTab === 'inactivos' ? '#f3f4f6' : 'var(--text-secondary)',
+                    border: seguimientoSubTab === 'inactivos' ? '1px solid #9ca3af' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <PauseCircle size={16} />
+                  <span>Inactivos / En Pausa ({stats.inactivo})</span>
+                </button>
               </div>
 
               {/* Filtros de Seguimiento */}
@@ -2083,7 +2325,11 @@ export default function DashboardClient({ profile }: Props) {
                   <input
                     className="form-input"
                     type="text"
-                    placeholder="Buscar por nombre, teléfono o municipio..."
+                    placeholder={
+                      seguimientoSubTab === 'activos'
+                        ? "Buscar miembros activos por nombre, teléfono o municipio..."
+                        : "Buscar miembros inactivos por nombre, teléfono o municipio..."
+                    }
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     style={{
@@ -2112,7 +2358,9 @@ export default function DashboardClient({ profile }: Props) {
                       color: 'var(--text-primary)',
                     }}
                   >
-                    <option value="all">Todos los miembros</option>
+                    <option value="all">
+                      {seguimientoSubTab === 'activos' ? 'Todos los miembros activos' : 'Todos los miembros inactivos'}
+                    </option>
                     <option value="mine">Mis miembros asignados</option>
                     <option value="unassigned">Sin asignar</option>
                     {profiles.map((p) => (
@@ -2123,34 +2371,57 @@ export default function DashboardClient({ profile }: Props) {
                   </select>
                 )}
 
-                {/* Filtro por estatus de consolidación */}
-                <select
-                  className="form-select"
-                  value={seguimientoStatusFilter}
-                  onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
-                  style={{
-                    padding: '0.7rem 1rem',
-                    fontSize: '0.88rem',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <option value="all">Todos los estados</option>
-                  <option value="pending">Pendientes de Consolidar</option>
-                  <option value="consolidated">Ya Consolidados</option>
-                  <option value="Nuevo">Nuevos</option>
-                  <option value="Reconciliado">Reconciliados</option>
-                  <option value="Visitante">Visitantes</option>
-                </select>
+                {/* Filtro por estatus de consolidación (solo en pestaña Activos) */}
+                {seguimientoSubTab === 'activos' ? (
+                  <select
+                    className="form-select"
+                    value={seguimientoStatusFilter}
+                    onChange={(e) => setSeguimientoStatusFilter(e.target.value)}
+                    style={{
+                      padding: '0.7rem 1rem',
+                      fontSize: '0.88rem',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <option value="all">👥 Todos los miembros activos</option>
+                    <option value="pending">⏳ Pendientes de Consolidar</option>
+                    <option value="consolidated">🛡️ Ya Consolidados</option>
+                    <option value="Nuevo">✨ Nuevos</option>
+                    <option value="Reconciliado">🕊️ Reconciliados</option>
+                    <option value="Visitante">🚶 Visitantes</option>
+                  </select>
+                ) : (
+                  <div
+                    style={{
+                      padding: '0.65rem 1rem',
+                      borderRadius: '8px',
+                      background: 'rgba(156, 163, 175, 0.1)',
+                      border: '1px solid rgba(156, 163, 175, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: '#d1d5db',
+                    }}
+                  >
+                    <PauseCircle size={15} style={{ color: '#9ca3af' }} />
+                    <span>Miembros en pausa. Consulta su ficha o reactívalos con un seguimiento.</span>
+                  </div>
+                )}
               </div>
 
               <div className="card" style={{ padding: '1.5rem' }}>
                 {seguimientoMembers.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                     <Phone size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
-                    <p>No se encontraron miembros con los filtros seleccionados.</p>
+                    <p>
+                      {seguimientoSubTab === 'inactivos'
+                        ? 'No hay miembros inactivos o en pausa.'
+                        : 'No se encontraron miembros activos con los filtros seleccionados.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="table-wrapper">
@@ -2168,7 +2439,18 @@ export default function DashboardClient({ profile }: Props) {
                       </thead>
                       <tbody>
                         {seguimientoMembers.map((member: Member) => (
-                          <tr key={member.id}>
+                          <tr
+                            key={member.id}
+                            style={
+                              member.status === 'Inactivo'
+                                ? {
+                                    opacity: 0.55,
+                                    filter: 'grayscale(0.6)',
+                                    background: 'rgba(255, 255, 255, 0.02)',
+                                  }
+                                : undefined
+                            }
+                          >
                             <td>
                               <div
                                 onClick={() => setSelectedFollowUpMember(member)}
@@ -2236,7 +2518,11 @@ export default function DashboardClient({ profile }: Props) {
                             </td>
                             <td>
                               <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
-                                {member.is_consolidated ? (
+                                {member.status === 'Inactivo' ? (
+                                  <span className="badge badge-inactivo" style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}>
+                                    En Pausa
+                                  </span>
+                                ) : member.is_consolidated ? (
                                   <button
                                     onClick={() => toggleConsolidado(member)}
                                     className="btn btn-secondary"
@@ -2868,7 +3154,9 @@ export default function DashboardClient({ profile }: Props) {
                             <th>Consolidador</th>
                             <th>Tipo</th>
                             <th>Detalle / Resultado</th>
-                            <th style={{ textAlign: 'center' }}>Acción</th>
+                            {profile.role !== 'pastor' && (
+                              <th style={{ textAlign: 'center', minWidth: '130px' }}>Acción</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
@@ -2939,22 +3227,34 @@ export default function DashboardClient({ profile }: Props) {
                                       {item.detail || 'Sin notas adicionales.'}
                                     </p>
                                   </td>
-                                  <td style={{ textAlign: 'center' }}>
-                                    {targetMember && (
-                                      <button
-                                        onClick={() => {
-                                          setSelectedFollowUpMember(targetMember);
-                                          setActiveTab('seguimiento');
-                                        }}
-                                        className="btn btn-secondary btn-icon"
-                                        title="Ver historial completo del miembro"
-                                        aria-label="Ver historial"
-                                        style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
-                                      >
-                                        <ClipboardList size={13} />
-                                      </button>
-                                    )}
-                                  </td>
+                                  {profile.role !== 'pastor' && (
+                                    <td style={{ textAlign: 'center' }}>
+                                      {targetMember ? (
+                                         <button
+                                           onClick={() => {
+                                             setSelectedFollowUpMember(targetMember);
+                                             setActiveTab('seguimiento');
+                                           }}
+                                           className="btn btn-secondary"
+                                           title="Ver historial completo del miembro"
+                                           aria-label="Ver historial"
+                                           style={{
+                                             padding: '0.45rem 0.85rem',
+                                             fontSize: '0.82rem',
+                                             gap: '0.4rem',
+                                             whiteSpace: 'nowrap',
+                                             color: 'var(--gold-primary)',
+                                             borderColor: 'var(--border-gold)',
+                                           }}
+                                         >
+                                           <ClipboardList size={14} />
+                                           Historial
+                                         </button>
+                                       ) : (
+                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
+                                       )}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}
@@ -2968,6 +3268,361 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
 
+        {/* ── Casas Tab ── */}
+        {activeTab === 'casas' && (
+          <div className="animate-fade-in">
+            {/* Sub-tabs */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+              <button
+                onClick={() => {
+                  setCasasSubTab('asignar');
+                  setSelectedCasaAttendanceId(null);
+                }}
+                className={`btn ${casasSubTab === 'asignar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Asignar Miembros
+              </button>
+              <button
+                onClick={() => {
+                  setCasasSubTab('gestionar');
+                  setSelectedCasaAttendanceId(null);
+                }}
+                className={`btn ${casasSubTab === 'gestionar' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Gestionar Casas
+              </button>
+            </div>
+
+            {/* ── Sub-tab: Gestionar Casas ── */}
+            {casasSubTab === 'gestionar' && (
+              <div>
+                {profile.role !== 'user' && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+                    <button
+                      onClick={() => {
+                        setCasaForm(emptyCasaForm);
+                        setCasaError('');
+                        setCasaModal({ open: true });
+                      }}
+                      className="btn btn-primary"
+                    >
+                      <Plus size={16} />
+                      Nueva Casa de Dios
+                    </button>
+                  </div>
+                )}
+
+                {(() => {
+                  const visibleHouseGroups = profile.role === 'user'
+                    ? houseGroups.filter(hg => hg.leader_id === profile.id)
+                    : houseGroups;
+                  
+                  if (visibleHouseGroups.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Home size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No hay Casas de Dios registradas.</p>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Municipio</th>
+                            <th>Dirección</th>
+                            <th>Líder Asignado</th>
+                            <th style={{ textAlign: 'center', minWidth: '340px' }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleHouseGroups.map((casa) => {
+                            const leader = profiles.find((p) => p.id === casa.leader_id);
+                          return (
+                            <tr key={casa.id}>
+                              <td><strong>{casa.name}</strong></td>
+                              <td className="text-secondary">{casa.municipio || '—'}</td>
+                              <td className="text-secondary">{casa.address || '—'}</td>
+                              <td className="text-secondary">{leader ? leader.full_name : '—'}</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '0.45rem', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  {(profile.role === 'principal' || profile.role === 'admin') && (
+                                    <button
+                                      onClick={() => {
+                                        setSelectedCasaAttendanceId(casa.id);
+                                        setCasasSubTab('asistencia');
+                                      }}
+                                      className="btn btn-primary"
+                                      style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                      title="Registrar y ver asistencia de servicios de esta Casa"
+                                    >
+                                      <CalendarCheck size={14} />
+                                      Asistencia
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => setHistoryModal({ open: true, houseGroupId: casa.id, houseGroupName: casa.name })}
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                    title="Historial de Servicios de esta Casa"
+                                  >
+                                    <CalendarDays size={14} />
+                                    Historial
+                                  </button>
+
+                                  {profile.role !== 'user' && (
+                                    <>
+                                      <button
+                                        onClick={() => {
+                                          setCasaForm({
+                                            name: casa.name,
+                                            address: casa.address || '',
+                                            municipio: casa.municipio || '',
+                                            leader_id: casa.leader_id || '',
+                                          });
+                                          setCasaError('');
+                                          setCasaModal({ open: true, casa });
+                                        }}
+                                        className="btn btn-secondary"
+                                        style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                        title="Editar Casa de Dios"
+                                      >
+                                        <Edit2 size={14} />
+                                        Editar
+                                      </button>
+
+                                      {deleteCasaConfirm === casa.id ? (
+                                        <div style={{ display: 'inline-flex', gap: '0.3rem' }}>
+                                          <button
+                                            onClick={() => confirmDeleteCasa(casa.id)}
+                                            className="btn btn-danger"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem', gap: '0.3rem' }}
+                                            title="Confirmar eliminación"
+                                          >
+                                            <Check size={14} />
+                                            Confirmar
+                                          </button>
+                                          <button
+                                            onClick={() => setDeleteCasaConfirm(null)}
+                                            className="btn btn-secondary"
+                                            style={{ padding: '0.45rem 0.75rem', fontSize: '0.82rem' }}
+                                            title="Cancelar"
+                                          >
+                                            <X size={14} />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => setDeleteCasaConfirm(casa.id)}
+                                          className="btn btn-danger"
+                                          style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem', gap: '0.4rem', whiteSpace: 'nowrap' }}
+                                          title="Eliminar Casa de Dios"
+                                        >
+                                          <Trash2 size={14} />
+                                          Eliminar
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── Sub-tab: Asignar Miembros ── */}
+            {casasSubTab === 'asignar' && (
+              <div>
+                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Buscar miembro</label>
+                    <div style={{ position: 'relative' }}>
+                      <Search
+                        size={15}
+                        style={{
+                          position: 'absolute',
+                          left: '1rem',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                      <input
+                        className="form-input"
+                        type="text"
+                        placeholder="Buscar por nombre..."
+                        value={assignSearch}
+                        onChange={(e) => setAssignSearch(e.target.value)}
+                        style={{ paddingLeft: '2.5rem' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ minWidth: '220px' }}>
+                    <label className="form-label" style={{ marginBottom: '0.4rem' }}>Filtrar por Casa de Dios</label>
+                    <select
+                      className="form-select"
+                      value={assignSelectedCasa}
+                      onChange={(e) => setAssignSelectedCasa(e.target.value)}
+                    >
+                      <option value="">Todos los miembros</option>
+                      <option value="sin_asignar">🔴 Sin casa asignada</option>
+                      {houseGroups.map(hg => (
+                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {(() => {
+                  let filteredAssignMembers = members.filter(m => {
+                    const q = assignSearch.toLowerCase();
+                    const matchSearch = !q || m.full_name.toLowerCase().includes(q);
+                    let matchCasa = true;
+                    if (assignSelectedCasa === 'sin_asignar') {
+                      matchCasa = !m.house_group_id;
+                    } else if (assignSelectedCasa) {
+                      matchCasa = m.house_group_id === assignSelectedCasa;
+                    }
+                    return matchSearch && matchCasa;
+                  });
+
+                  // Sort: sin asignar primero
+                  filteredAssignMembers.sort((a, b) => {
+                    if (!a.house_group_id && b.house_group_id) return -1;
+                    if (a.house_group_id && !b.house_group_id) return 1;
+                    return a.full_name.localeCompare(b.full_name);
+                  });
+
+                  if (filteredAssignMembers.length === 0) {
+                    return (
+                      <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
+                        <Users size={48} style={{ margin: '0 auto 1rem', opacity: 0.25, display: 'block' }} />
+                        <p>No se encontraron miembros.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="table-wrapper">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Nombre</th>
+                            <th>Miembro</th>
+                            <th>Municipio</th>
+                            <th>Casa de Dios Actual</th>
+                            <th style={{ textAlign: 'center' }}>Asignar / Cambiar</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredAssignMembers.map((member) => {
+                            const currentCasa = houseGroups.find(hg => hg.id === member.house_group_id);
+                            return (
+                              <tr key={member.id}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                    <div className="avatar-placeholder" style={{ width: 32, height: 32, fontSize: '0.75rem', flexShrink: 0 }}>
+                                      {member.full_name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span style={{ fontWeight: 600 }}>{member.full_name}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span className={`badge badge-${member.status.toLowerCase()}`}>{member.status}</span>
+                                </td>
+                                <td className="text-secondary">{member.municipio || '—'}</td>
+                                <td>
+                                  {currentCasa ? (
+                                    <span style={{ color: 'var(--gold-primary)', fontWeight: 600 }}>{currentCasa.name}</span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin casa asignada</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center' }}>
+                                    <select
+                                      className="form-select"
+                                      style={{ width: 'auto', padding: '0.4rem 2rem 0.4rem 0.75rem', fontSize: '0.82rem', minWidth: '160px' }}
+                                      value={member.house_group_id || ''}
+                                      disabled={assigningMember === member.id}
+                                      onChange={async (e) => {
+                                        const newCasaId = e.target.value || null;
+                                        setAssigningMember(member.id);
+                                        try {
+                                          const { error } = await supabase
+                                            .from('members')
+                                            .update({ house_group_id: newCasaId })
+                                            .eq('id', member.id);
+                                          if (error) throw error;
+                                          showToast(newCasaId ? 'Miembro asignado a Casa de Dios.' : 'Miembro desasignado.');
+                                          fetchMembers();
+                                        } catch (err) {
+                                          showToast('Error al asignar miembro.', 'error');
+                                        } finally {
+                                          setAssigningMember(null);
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Sin asignar</option>
+                                      {houseGroups.map(hg => (
+                                        <option key={hg.id} value={hg.id}>{hg.name}</option>
+                                      ))}
+                                    </select>
+                                    {assigningMember === member.id && (
+                                      <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--gold-primary)' }} />
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem', textAlign: 'right' }}>
+                        Mostrando {filteredAssignMembers.length} de {members.length} miembros
+                        {' • '}<strong style={{ color: 'var(--gold-primary)' }}>{members.filter(m => !m.house_group_id).length}</strong> sin casa asignada
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* ── Sub-tab: Asistencia de Servicios ── */}
+            {casasSubTab === 'asistencia' && (profile.role === 'principal' || profile.role === 'admin') && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <ServiceAttendanceModule
+                  profile={profile}
+                  supabase={supabase}
+                  showToast={showToast}
+                  houseGroups={houseGroups}
+                  members={members}
+                  initialCasaId={selectedCasaAttendanceId}
+                  onBackToCasas={() => {
+                    setCasasSubTab('gestionar');
+                    setSelectedCasaAttendanceId(null);
+                  }}
+                  onNavigateToMembers={() => setActiveTab('members')}
+                  onNavigateToAssign={() => setCasasSubTab('asignar')}
+                />
+              </div>
+            )}
+          </div>
+        )}
         {/* ── Users Tab (principal & admin) ── */}
         {activeTab === 'users' && (profile.role === 'principal' || profile.role === 'admin') && (
           <div className="animate-fade-in">
@@ -3219,7 +3874,7 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
 
-              {/* Liderazgo y Administración */}
+              {/* Liderazgo y Pastoral */}
               <div className="card" style={{ padding: '1.5rem' }}>
                 <h3 className="font-cinzel" style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--gold-primary)' }}>
                   Liderazgo y Pastoral
@@ -3239,18 +3894,19 @@ export default function DashboardClient({ profile }: Props) {
                       </div>
                     </div>
                   ))}
-                  {singleCasa && (
+                  {houseGroups.length > 0 && (
                     <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--border-gold)', borderRadius: '8px', background: 'rgba(212, 175, 55, 0.05)' }}>
                       <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--gold-primary)', margin: '0 0 0.2rem 0' }}>
-                        🏠 {singleCasa.name}
+                        🏠 {houseGroups[0].name}
                       </p>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>
-                        {singleCasa.address || 'Sede Principal'}{singleCasa.municipio ? ` • ${singleCasa.municipio}` : ''}
+                        {houseGroups[0].address || 'Sede Principal'}{houseGroups[0].municipio ? ` • ${houseGroups[0].municipio}` : ''}
                       </p>
                     </div>
                   )}
                 </div>
               </div>
+
             </div>
           </div>
         )}
@@ -3259,7 +3915,13 @@ export default function DashboardClient({ profile }: Props) {
       {/* ── Member Modal ── */}
       {memberModal.open && (
         <Modal
-          title={memberModal.member ? 'Editar Miembro' : 'Nuevo Miembro'}
+          title={
+            memberModal.isReadOnly
+              ? 'Detalles del Miembro (Solo Lectura)'
+              : memberModal.member
+              ? 'Editar Miembro'
+              : 'Nuevo Miembro'
+          }
           onClose={() => setMemberModal({ open: false })}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -3270,10 +3932,11 @@ export default function DashboardClient({ profile }: Props) {
                 type="text"
                 placeholder="Nombre y apellido"
                 value={memberForm.full_name}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, full_name: e.target.value }))
                 }
-                autoFocus
+                autoFocus={!memberModal.isReadOnly}
               />
             </div>
 
@@ -3287,6 +3950,7 @@ export default function DashboardClient({ profile }: Props) {
                   min="1"
                   max="120"
                   value={memberForm.age}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, age: e.target.value }))
                   }
@@ -3297,6 +3961,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.gender}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, gender: e.target.value }))
                   }
@@ -3312,45 +3977,83 @@ export default function DashboardClient({ profile }: Props) {
               <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>
                 Estado / Condición del Miembro *
               </label>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
-                {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
-                {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
-                {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
-                {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
-                {[
-                  { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
-                  { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
-                  { key: 'Visitante', label: 'Visitante', icon: '🚶' },
-                  { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
-                ].map((st) => {
-                  const isSel = memberForm.status === st.key;
-                  return (
-                    <button
-                      key={st.key}
-                      type="button"
-                      onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
-                      className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{
-                        padding: '0.55rem 0.5rem',
-                        fontSize: '0.82rem',
-                        fontWeight: isSel ? 600 : 400,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.35rem',
-                        borderColor: isSel ? 'var(--gold-primary)' : undefined,
-                        boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
-                        width: '100%',
-                      }}
-                    >
-                      <span>{st.icon}</span>
-                      <span>{st.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {memberModal.isReadOnly ? (
+                <div
+                  style={{
+                    padding: '0.75rem 1rem',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-gold)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                  }}
+                >
+                  <span
+                    className={`badge badge-${memberForm.status.toLowerCase()}`}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    {memberForm.status}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                    {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                    {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                    {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                    {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                    {memberForm.status === 'Nuevo' && '✨ Nuevo creyente o asistente'}
+                    {memberForm.status === 'Reconciliado' && '🕊️ Persona reconciliada con el Señor'}
+                    {memberForm.status === 'Visitante' && '🚶 Visitante a consolidar'}
+                    {memberForm.status === 'Consolidado' && '🛡️ Miembro activo consolidado'}
+                    {memberForm.status === 'Inactivo' && '⏸️ No asiste actualmente o en pausa pastoral'}
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.4rem' }}>
+                    {(memberModal.member
+                      ? [
+                          { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                          { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                          { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                          { key: 'Consolidado', label: 'Consolidado', icon: '🛡️' },
+                        ]
+                      : [
+                          { key: 'Nuevo', label: 'Nuevo', icon: '✨' },
+                          { key: 'Reconciliado', label: 'Reconciliado', icon: '🕊️' },
+                          { key: 'Visitante', label: 'Visitante', icon: '🚶' },
+                        ]
+                    ).map((st) => {
+                      const isSel = memberForm.status === st.key;
+                      return (
+                        <button
+                          key={st.key}
+                          type="button"
+                          onClick={() => setMemberForm((f) => ({ ...f, status: st.key as Member['status'] }))}
+                          className={`btn ${isSel ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{
+                            padding: '0.55rem 0.5rem',
+                            fontSize: '0.82rem',
+                            fontWeight: isSel ? 600 : 400,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.35rem',
+                            borderColor: isSel ? 'var(--gold-primary)' : undefined,
+                            boxShadow: isSel ? '0 0 8px rgba(201, 168, 76, 0.3)' : 'none',
+                            width: '100%',
+                          }}
+                        >
+                          <span>{st.icon}</span>
+                          <span>{st.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="grid-2">
@@ -3359,6 +4062,7 @@ export default function DashboardClient({ profile }: Props) {
                 <select
                   className="form-select"
                   value={memberForm.municipio}
+                  disabled={memberModal.isReadOnly}
                   onChange={(e) =>
                     setMemberForm((f) => ({ ...f, municipio: e.target.value }))
                   }
@@ -3371,30 +4075,58 @@ export default function DashboardClient({ profile }: Props) {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
-                Consolidador Asignado *
-              </label>
-              <select
-                className="form-select"
-                value={memberForm.consolidator_id}
-                onChange={(e) =>
-                  setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
-                }
-              >
-                <option value={profile.id}>Yo mismo ({profile.full_name})</option>
-                {profiles
-                  .filter((p) => p.id !== profile.id)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <UserCheck size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Consolidador Asignado *
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.consolidator_id}
+                  disabled={memberModal.isReadOnly}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, consolidator_id: e.target.value }))
+                  }
+                >
+                  <option value={profile.id}>Yo mismo ({profile.full_name})</option>
+                  {profiles
+                    .filter((p) => p.id !== profile.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name} ({p.role === 'user' ? 'Consolidador' : p.role})
+                      </option>
+                    ))}
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  El visitante se cargará en la vista del consolidador.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Flame size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Casa de Dios
+                </label>
+                <select
+                  className="form-select"
+                  value={memberForm.house_group_id}
+                  disabled={memberModal.isReadOnly}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, house_group_id: e.target.value }))
+                  }
+                >
+                  <option value="">-- Sin Casa de Dios --</option>
+                  {houseGroups.map((hg) => (
+                    <option key={hg.id} value={hg.id}>
+                      {hg.name} {hg.municipio ? `(${hg.municipio})` : ''}
                     </option>
                   ))}
-              </select>
-              <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
-                El visitante se cargará en la vista del consolidador.
-              </span>
+                </select>
+                <span className="text-muted" style={{ fontSize: '0.72rem', marginTop: '0.25rem', display: 'block' }}>
+                  Opcional: vincular a Casa de Dios.
+                </span>
+              </div>
             </div>
 
             <div className="form-group">
@@ -3404,6 +4136,7 @@ export default function DashboardClient({ profile }: Props) {
                 type="text"
                 placeholder="Urb. Las Palmas, casa #12..."
                 value={memberForm.address}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) =>
                   setMemberForm((f) => ({ ...f, address: e.target.value }))
                 }
@@ -3412,7 +4145,7 @@ export default function DashboardClient({ profile }: Props) {
 
             <div className="form-group">
               <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Teléfono</span>
+                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
               </label>
               <input
@@ -3420,10 +4153,10 @@ export default function DashboardClient({ profile }: Props) {
                 className="form-input"
                 type="tel"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 maxLength={11}
-                placeholder="Ej: 04141234567"
+                placeholder="Ej: 04141234567 (opcional)"
                 value={memberForm.phone}
+                disabled={memberModal.isReadOnly}
                 onChange={(e) => {
                   const clean = limpiarTelefonoInput(e.target.value);
                   setMemberForm((f) => ({ ...f, phone: clean }));
@@ -3438,7 +4171,11 @@ export default function DashboardClient({ profile }: Props) {
                     : undefined,
                 }}
               />
-              {memberForm.phone && (
+              {!memberForm.phone ? (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                  Puedes dejar este campo en blanco si la persona no tiene teléfono.
+                </p>
+              ) : (
                 <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
                   {(() => {
                     const val = validarTelefonoVenezolano(memberForm.phone);
@@ -3478,20 +4215,33 @@ export default function DashboardClient({ profile }: Props) {
                 marginTop: '0.5rem',
               }}
             >
-              <button
-                onClick={() => setMemberModal({ open: false })}
-                className="btn btn-secondary"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={saveMember}
-                className="btn btn-primary"
-                disabled={savingMember}
-                id="save-member-btn"
-              >
-                {savingMember ? 'Guardando...' : memberModal.member ? 'Guardar cambios' : 'Registrar'}
-              </button>
+              {memberModal.isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={() => setMemberModal({ open: false })}
+                  className="btn btn-primary"
+                  style={{ minWidth: '100px' }}
+                >
+                  Cerrar
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setMemberModal({ open: false })}
+                    className="btn btn-secondary"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={saveMember}
+                    className="btn btn-primary"
+                    disabled={savingMember}
+                    id="save-member-btn"
+                  >
+                    {savingMember ? 'Guardando...' : memberModal.member ? 'Guardar cambios' : 'Registrar'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </Modal>
@@ -3545,7 +4295,7 @@ export default function DashboardClient({ profile }: Props) {
 
             <div className="form-group">
               <label htmlFor="user-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Teléfono</span>
+                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
               </label>
               <input
@@ -3553,9 +4303,8 @@ export default function DashboardClient({ profile }: Props) {
                 className="form-input"
                 type="tel"
                 inputMode="numeric"
-                pattern="[0-9]*"
                 maxLength={11}
-                placeholder="Ej: 04141234567"
+                placeholder="Ej: 04141234567 (opcional)"
                 value={userForm.phone}
                 onChange={(e) => {
                   const clean = limpiarTelefonoInput(e.target.value);
@@ -3571,7 +4320,11 @@ export default function DashboardClient({ profile }: Props) {
                     : undefined,
                 }}
               />
-              {userForm.phone && (
+              {!userForm.phone ? (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                  Puedes dejar este campo en blanco si el usuario no tiene teléfono.
+                </p>
+              ) : (
                 <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
                   {(() => {
                     const val = validarTelefonoVenezolano(userForm.phone);
@@ -3646,25 +4399,18 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         </Modal>
       )}
-      {/* ── Modal Configuración Casa de Dios (Solo Administrador / Principal) ── */}
-      {singleCasaModal && (
-        <Modal
-          title="Casa de Dios de la Congregación"
-          onClose={() => setSingleCasaModal(false)}
-        >
+      {/* ── Casa Modal ── */}
+      {casaModal.open && (
+        <Modal title={casaModal.casa ? 'Editar Casa de Dios' : 'Nueva Casa de Dios'} onClose={() => setCasaModal({ open: false })}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p className="text-secondary" style={{ fontSize: '0.85rem', margin: 0 }}>
-              Configura los datos de la Casa de Dios de la congregación. Todos los miembros registrados se asocian automáticamente a esta Casa de Dios.
-            </p>
-
             <div className="form-group">
-              <label className="form-label">Nombre de la Casa de Dios *</label>
+              <label className="form-label">Nombre de la Casa *</label>
               <input
                 className="form-input"
                 type="text"
-                placeholder="Ej. Avivamiento León de la Tribu de Judá"
-                value={singleCasaForm.name}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Ej. Casa Betania"
+                value={casaForm.name}
+                onChange={(e) => setCasaForm((f) => ({ ...f, name: e.target.value }))}
                 autoFocus
               />
             </div>
@@ -3673,10 +4419,10 @@ export default function DashboardClient({ profile }: Props) {
               <label className="form-label">Municipio</label>
               <select
                 className="form-select"
-                value={singleCasaForm.municipio}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, municipio: e.target.value }))}
+                value={casaForm.municipio}
+                onChange={(e) => setCasaForm((f) => ({ ...f, municipio: e.target.value }))}
               >
-                <option value="">-- Seleccionar Municipio --</option>
+                <option value="">-- Seleccionar --</option>
                 {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
@@ -3688,20 +4434,102 @@ export default function DashboardClient({ profile }: Props) {
               <input
                 className="form-input"
                 type="text"
-                placeholder="Urb. El Centro, Calle Principal..."
-                value={singleCasaForm.address}
-                onChange={(e) => setSingleCasaForm((f) => ({ ...f, address: e.target.value }))}
+                placeholder="Urb. El Centro, Calle 2"
+                value={casaForm.address}
+                onChange={(e) => setCasaForm((f) => ({ ...f, address: e.target.value }))}
               />
             </div>
 
-            {singleCasaError && <p className="form-error">{singleCasaError}</p>}
+            <div className="form-group">
+              <label className="form-label">Líder Asignado</label>
+              <select
+                className="form-select"
+                value={casaForm.leader_id}
+                onChange={(e) => setCasaForm((f) => ({ ...f, leader_id: e.target.value }))}
+              >
+                <option value="">-- Seleccionar líder --</option>
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.full_name} ({ROLE_LABELS[p.role]})</option>
+                ))}
+              </select>
+            </div>
+
+            {casaError && <p className="form-error">{casaError}</p>}
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-              <button onClick={() => setSingleCasaModal(false)} className="btn btn-secondary">
+              <button onClick={() => setCasaModal({ open: false })} className="btn btn-secondary">
                 Cancelar
               </button>
-              <button onClick={handleSaveSingleCasa} className="btn btn-primary" disabled={savingSingleCasa}>
-                {savingSingleCasa ? 'Guardando...' : 'Guardar Cambios'}
+              <button onClick={saveCasa} className="btn btn-primary" disabled={savingCasa}>
+                {savingCasa ? 'Guardando...' : casaModal.casa ? 'Guardar cambios' : 'Crear Casa'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Service History Modal ── */}
+      {historyModal.open && (
+        <Modal title={`Historial de Servicios - ${historyModal.houseGroupName || ''}`} onClose={() => setHistoryModal({ open: false })}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '60vh', overflowY: 'auto' }}>
+            {(() => {
+              const meetings = houseGroupMeetings.filter(m => m.house_group_id === historyModal.houseGroupId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              
+              if (meetings.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                    <CalendarDays size={32} style={{ margin: '0 auto 1rem', opacity: 0.3 }} />
+                    <p>No se han registrado servicios en esta Casa de Dios.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="table-wrapper">
+                  <table style={{ minWidth: '400px' }}>
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Día</th>
+                        <th>Tema / Enseñanza</th>
+                        <th style={{ textAlign: 'center' }}>Asistentes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {meetings.map(meeting => {
+                        const dateObj = new Date(meeting.date + 'T12:00:00Z');
+                        const dayName = dateObj.toLocaleDateString('es-ES', { weekday: 'long' });
+                        const dateString = dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        const attendeesCount = attendances.filter(a => a.meeting_id === meeting.id).length;
+                        
+                        return (
+                          <tr key={meeting.id}>
+                            <td suppressHydrationWarning>{dateString}</td>
+                            <td suppressHydrationWarning style={{ textTransform: 'capitalize' }}>{dayName}</td>
+                            <td><strong>{meeting.topic || 'Sin título'}</strong></td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ 
+                                background: 'var(--bg-card-hover)', 
+                                padding: '0.2rem 0.6rem', 
+                                borderRadius: '12px', 
+                                fontSize: '0.85rem',
+                                color: 'var(--gold-primary)'
+                              }}>
+                                {attendeesCount}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button onClick={() => setHistoryModal({ open: false })} className="btn btn-secondary">
+                Cerrar
               </button>
             </div>
           </div>

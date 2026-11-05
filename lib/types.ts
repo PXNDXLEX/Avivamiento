@@ -26,6 +26,8 @@ export interface Profile {
   last_seen_at?: string | null;
 }
 
+export type MemberStatus = 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado' | 'Inactivo';
+
 export interface Member {
   id: string;
   full_name: string;
@@ -34,7 +36,7 @@ export interface Member {
   municipio: string | null;
   address: string | null;
   phone: string | null;
-  status: 'Nuevo' | 'Reconciliado' | 'Visitante' | 'Consolidado';
+  status: MemberStatus;
   house_group_id: string | null;
   consolidator_id: string | null;
   consolidator_name: string;
@@ -73,7 +75,7 @@ export interface Attendance {
   created_at: string;
 }
 
-export type FollowUpType = 'llamada' | 'visita' | 'mensaje' | 'otro';
+export type FollowUpType = 'llamada' | 'visita' | 'mensaje' | 'otro' | 'inactivo';
 
 export interface MemberFollowUp {
   id: string;
@@ -98,3 +100,22 @@ export interface SystemKeepalive {
   updated_at: string;
 }
 
+
+export interface ChurchService {
+  id: string;
+  house_group_id?: string | null;
+  name: string;
+  date: string;
+  created_at: string;
+  created_by?: string | null;
+  attendance_count?: number;
+}
+
+export interface ServiceAttendance {
+  id: string;
+  service_id: string;
+  member_id: string;
+  created_at: string;
+  created_by?: string | null;
+  member?: Member;
+}
