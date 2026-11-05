@@ -3155,7 +3155,7 @@ export default function DashboardClient({ profile }: Props) {
                             <th>Tipo</th>
                             <th>Detalle / Resultado</th>
                             {profile.role !== 'pastor' && (
-                              <th style={{ textAlign: 'center' }}>Acción</th>
+                              <th style={{ textAlign: 'center', minWidth: '130px' }}>Acción</th>
                             )}
                           </tr>
                         </thead>
@@ -3229,20 +3229,30 @@ export default function DashboardClient({ profile }: Props) {
                                   </td>
                                   {profile.role !== 'pastor' && (
                                     <td style={{ textAlign: 'center' }}>
-                                      {targetMember && (
-                                        <button
-                                          onClick={() => {
-                                            setSelectedFollowUpMember(targetMember);
-                                            setActiveTab('seguimiento');
-                                          }}
-                                          className="btn btn-secondary btn-icon"
-                                          title="Ver historial completo del miembro"
-                                          aria-label="Ver historial"
-                                          style={{ color: 'var(--gold-primary)', borderColor: 'var(--border-gold)', width: 30, height: 30 }}
-                                        >
-                                          <ClipboardList size={13} />
-                                        </button>
-                                      )}
+                                      {targetMember ? (
+                                         <button
+                                           onClick={() => {
+                                             setSelectedFollowUpMember(targetMember);
+                                             setActiveTab('seguimiento');
+                                           }}
+                                           className="btn btn-secondary"
+                                           title="Ver historial completo del miembro"
+                                           aria-label="Ver historial"
+                                           style={{
+                                             padding: '0.45rem 0.85rem',
+                                             fontSize: '0.82rem',
+                                             gap: '0.4rem',
+                                             whiteSpace: 'nowrap',
+                                             color: 'var(--gold-primary)',
+                                             borderColor: 'var(--border-gold)',
+                                           }}
+                                         >
+                                           <ClipboardList size={14} />
+                                           Historial
+                                         </button>
+                                       ) : (
+                                         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
+                                       )}
                                     </td>
                                   )}
                                 </tr>
