@@ -31,6 +31,13 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Permitir que rastreadores de redes sociales (WhatsApp, Facebook, Twitter, Telegram) lean los metadatos Open Graph sin redirigirlos
+  const userAgent = request.headers.get('user-agent') || '';
+  const isSocialCrawler = /facebookexternalhit|WhatsApp|Facebot|Twitterbot|TelegramBot|LinkedInBot|Slackbot/i.test(userAgent);
+  if (isSocialCrawler) {
+    return supabaseResponse;
+  }
+
   // Si no hay sesión y no está en /login, redirigir a login
   if (!user && !pathname.startsWith('/login')) {
     return NextResponse.redirect(new URL('/login?error=proxy_no_user', request.url));

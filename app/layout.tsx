@@ -2,7 +2,11 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import ThemeToggle from './components/ThemeToggle';
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://avivamiento-leon.vercel.app';
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+  'https://avivamiento-leon-de-la-tribu-de-jud.vercel.app';
 
 export const viewport: Viewport = {
   themeColor: '#0a0a0c',
@@ -74,7 +78,18 @@ export default function RootLayout({
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" type="image/jpeg" href="/logo.jpg" />
-        <link rel="apple-touch-icon" href="/logo.jpg" />
+        <link rel="icon" type="image/png" href="/logo-circle.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        
+        {/* Etiquetas directas para asegurar compatibilidad total con WhatsApp y Meta */}
+        <meta property="og:image" content={`${siteUrl}/og-image.jpg`} />
+        <meta property="og:image:secure_url" content={`${siteUrl}/og-image.jpg`} />
+        <meta property="og:image:type" content="image/jpeg" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="Avivamiento León de la Tribu de Judá" />
+        <meta itemProp="image" content={`${siteUrl}/og-image.jpg`} />
+        <link rel="image_src" href={`${siteUrl}/og-image.jpg`} />
       </head>
       <body>
         {children}
