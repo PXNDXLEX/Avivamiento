@@ -1383,15 +1383,23 @@ export default function DashboardClient({ profile }: Props) {
     }
   }, [profile.role, activeTab]);
 
-  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear la ficha abierta para regresar siempre al menú principal de seguimiento */
+  /* Al navegar fuera de seguimiento o cambiar de pestaña, resetear las vistas abiertas para regresar siempre al menú principal */
   useEffect(() => {
     if (activeTab !== 'seguimiento') {
       setSelectedFollowUpMember(null);
+    }
+    if (activeTab !== 'casas') {
+      setCasasSubTab('gestionar');
+      setSelectedCasaAttendanceId(null);
     }
   }, [activeTab]);
 
   const handleTabClick = (tabKey: ActiveTab) => {
     setSelectedFollowUpMember(null);
+    if (tabKey === 'casas') {
+      setCasasSubTab('gestionar');
+      setSelectedCasaAttendanceId(null);
+    }
     setActiveTab(tabKey);
   };
 
