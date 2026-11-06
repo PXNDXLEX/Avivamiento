@@ -542,36 +542,69 @@ export default function DashboardClient({ profile }: Props) {
     if (profile.role === 'user') return;
     setLoadingFollowUps(true);
     let loadedRecords: MemberFollowUp[] = [];
+    let isTableAvailable = false;
+
     try {
       const { data, error } = await supabase
         .from('member_follow_ups')
         .select('*')
         .order('date', { ascending: false });
 
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         loadedRecords = data;
+        isTableAvailable = true;
+      } else if (error) {
+        console.warn('Nota: Consulta de member_follow_ups en Supabase:', error.message);
       }
-    } catch {
-      // Ignorar si la tabla no está creada aún o falla la conexión
+    } catch (e) {
+      console.warn('Error al conectar con member_follow_ups:', e);
     }
 
-    // Merge con datos guardados localmente (avivamiento_followups_*)
+    // Rescate y sincronización de seguimientos atrapados en el caché de este equipo
     if (typeof window !== 'undefined') {
       try {
         const localRecords: MemberFollowUp[] = [];
+        const keysToRemove: string[] = [];
+
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith('avivamiento_followups_')) {
             const raw = localStorage.getItem(key);
             if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) {
-                localRecords.push(...parsed);
-              }
+              try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                  localRecords.push(...parsed);
+                }
+              } catch {}
             }
+            keysToRemove.push(key);
           }
         }
-        if (localRecords.length > 0) {
+
+        // Si la tabla en Supabase está activa y hay registros locales que no se han subido a la nube,
+        // subirlos automáticamente a Supabase para que sean visibles en todas las laptops y teléfonos
+        if (isTableAvailable && localRecords.length > 0) {
+          const existingIds = new Set(loadedRecords.map((r) => r.id));
+          const toUpload = localRecords.filter((r) => !existingIds.has(r.id));
+
+          if (toUpload.length > 0) {
+            try {
+              const { error: uploadError } = await supabase.from('member_follow_ups').insert(toUpload);
+              if (!uploadError) {
+                loadedRecords = [...toUpload, ...loadedRecords].sort(
+                  (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+                );
+              }
+            } catch {}
+          }
+
+          // Una vez sincronizados a Supabase, limpiar las claves de localStorage para evitar datos fantasma
+          keysToRemove.forEach((k) => {
+            try { localStorage.removeItem(k); } catch {}
+          });
+        } else if (!isTableAvailable && localRecords.length > 0) {
+          // Si la tabla aún no existe en Supabase, mantener temporalmente en memoria
           const map = new Map<string, MemberFollowUp>();
           loadedRecords.forEach((r) => map.set(r.id, r));
           localRecords.forEach((r) => {
@@ -588,7 +621,7 @@ export default function DashboardClient({ profile }: Props) {
 
     setAllFollowUps(loadedRecords);
     setLoadingFollowUps(false);
-  }, [supabase]);
+  }, [supabase, profile.role]);
 
   useEffect(() => {
     fetchMembers();
@@ -901,7 +934,12 @@ export default function DashboardClient({ profile }: Props) {
 
   /* ── Seguimiento General Data Calculations ── */
   const filteredFollowUps = useMemo(() => {
+    const activeMemberIds = new Set(members.map((m) => m.id));
     return allFollowUps.filter((item) => {
+      // Excluir seguimientos de miembros eliminados
+      if (activeMemberIds.size > 0 && !activeMemberIds.has(item.member_id)) {
+        return false;
+      }
       if (dateFilter === 'all') return true;
       const itemDate = new Date(item.date);
       const now = new Date();
@@ -919,7 +957,7 @@ export default function DashboardClient({ profile }: Props) {
       }
       return true;
     });
-  }, [allFollowUps, dateFilter]);
+  }, [allFollowUps, members, dateFilter]);
 
   const followUpMetrics = useMemo(() => {
     const total = filteredFollowUps.length;
@@ -1176,6 +1214,14 @@ export default function DashboardClient({ profile }: Props) {
     if (error) {
       showToast('Error al eliminar el miembro.', 'error');
     } else {
+      // Eliminar seguimientos asociados en Supabase y limpiar caché local
+      try {
+        await supabase.from('member_follow_ups').delete().eq('member_id', id);
+      } catch {}
+      try {
+        localStorage.removeItem(`avivamiento_followups_${id}`);
+      } catch {}
+      setAllFollowUps((prev) => prev.filter((f) => f.member_id !== id));
       showToast('Miembro eliminado.');
       fetchMembers();
     }

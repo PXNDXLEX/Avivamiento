@@ -180,7 +180,8 @@ export default function MemberFollowUpSheet({
   /* ── Load Follow-ups ── */
   const fetchFollowUps = useCallback(async () => {
     setLoading(true);
-    let loadedFromSupabase = false;
+    let loadedData: MemberFollowUp[] = [];
+    let fromRemote = false;
 
     try {
       const { data, error } = await supabase
@@ -190,30 +191,39 @@ export default function MemberFollowUpSheet({
         .order('date', { ascending: false });
 
       if (!error && data) {
-        setFollowUps(data);
-        loadedFromSupabase = true;
-        // Sincronizar en localStorage como cache
-        try {
-          localStorage.setItem(localKey, JSON.stringify(data));
-        } catch {}
+        loadedData = data;
+        fromRemote = true;
       }
-    } catch {
-      // Si la tabla aún no existe en Supabase, recurrir a localStorage
-    }
+    } catch {}
 
-    if (!loadedFromSupabase) {
+    // Rescatar registros locales si existen y subirlos a Supabase
+    if (typeof window !== 'undefined') {
       try {
         const cached = localStorage.getItem(localKey);
         if (cached) {
-          setFollowUps(JSON.parse(cached));
-        } else {
-          setFollowUps([]);
+          const parsed: MemberFollowUp[] = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            if (fromRemote) {
+              const remoteIds = new Set(loadedData.map((d) => d.id));
+              const missing = parsed.filter((p) => !remoteIds.has(p.id));
+              if (missing.length > 0) {
+                const { error: insErr } = await supabase.from('member_follow_ups').insert(missing);
+                if (!insErr) {
+                  loadedData = [...missing, ...loadedData].sort(
+                    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+                  );
+                }
+              }
+              localStorage.removeItem(localKey);
+            } else {
+              loadedData = parsed;
+            }
+          }
         }
-      } catch {
-        setFollowUps([]);
-      }
+      } catch {}
     }
 
+    setFollowUps(loadedData);
     setLoading(false);
   }, [supabase, currentMember.id, localKey]);
 
@@ -264,30 +274,45 @@ export default function MemberFollowUpSheet({
       created_at: new Date().toISOString(),
     };
 
-    let savedRemote = false;
+    let saveError: string | null = null;
 
     try {
-      const { error } = await supabase.from('member_follow_ups').insert([newFollowUp]);
-      if (!error) {
-        savedRemote = true;
-      } else if (formType === 'inactivo') {
+      let { error } = await supabase.from('member_follow_ups').insert([newFollowUp]);
+      if (error && formType === 'inactivo') {
         // Fallback por si la restricción CHECK en Postgres no se ha migrado aún
         const fallback = { ...newFollowUp, type: 'otro' as FollowUpType, title: 'Pausa Pastoral / Inactivo' };
-        const { error: err2 } = await supabase.from('member_follow_ups').insert([fallback]);
-        if (!err2) savedRemote = true;
+        const res2 = await supabase.from('member_follow_ups').insert([fallback]);
+        error = res2.error;
       }
-    } catch {
-      // Ignorar si la tabla no existe en Supabase todavía
+      if (error) {
+        saveError = error.message;
+        console.error('Error guardando interacción en Supabase:', error);
+      }
+    } catch (err: any) {
+      saveError = err?.message || 'Error de conexión con la base de datos';
+      console.error('Excepción guardando interacción:', err);
     }
 
-    // Actualizar estado local y cache en localStorage
     const updated = [newFollowUp, ...followUps].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
     setFollowUps(updated);
-    try {
-      localStorage.setItem(localKey, JSON.stringify(updated));
-    } catch {}
+
+    if (saveError) {
+      try {
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      } catch {}
+      showToast('Guardado temporal en este equipo. Ejecuta el script SQL en Supabase para sincronizar con todos los dispositivos.', 'error');
+    } else {
+      try {
+        localStorage.removeItem(localKey);
+      } catch {}
+      showToast(
+        formType === 'inactivo'
+          ? 'Miembro puesto en Inactivo y nota registrada en la base de datos.'
+          : 'Interacción registrada con éxito en la base de datos.'
+      );
+    }
 
     // Si se marcó como inactivo
     if (formType === 'inactivo') {
@@ -315,30 +340,30 @@ export default function MemberFollowUpSheet({
     setFormDetail('');
     setFormResult('');
     setMarkConsolidado(false);
-
-    showToast(
-      formType === 'inactivo'
-        ? 'Miembro puesto en Inactivo y nota guardada.'
-        : savedRemote
-        ? 'Interacción registrada con éxito.'
-        : 'Interacción guardada en este equipo (Recuerda ejecutar la migración SQL en Supabase).'
-    );
   }
 
   /* ── Eliminar Interacción ── */
   async function handleDeleteInteraction(id: string) {
     try {
-      await supabase.from('member_follow_ups').delete().eq('id', id);
+      const { error } = await supabase.from('member_follow_ups').delete().eq('id', id);
+      if (error) {
+        console.warn('Error al eliminar en Supabase:', error.message);
+      }
     } catch {}
 
     const updated = followUps.filter((f) => f.id !== id);
     setFollowUps(updated);
     try {
-      localStorage.setItem(localKey, JSON.stringify(updated));
+      if (updated.length > 0) {
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      } else {
+        localStorage.removeItem(localKey);
+      }
     } catch {}
 
     setDeletingId(null);
     showToast('Interacción eliminada.');
+    if (onMemberUpdated) onMemberUpdated();
   }
 
   /* ── Cambiar Estatus del Miembro Rápidamente ── */
