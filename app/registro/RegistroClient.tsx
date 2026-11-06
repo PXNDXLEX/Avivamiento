@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -25,6 +25,7 @@ import {
   Phone,
   ClipboardList,
   PauseCircle,
+  Calendar,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -72,6 +73,7 @@ export default function RegistroClient({ profile }: Props) {
     address: '',
     phone: '',
     status: 'Nuevo' as Member['status'],
+    created_at: obtenerFechaActualInput(),
   };
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -170,6 +172,7 @@ export default function RegistroClient({ profile }: Props) {
       address: member.address ?? '',
       phone: member.phone ? member.phone.replace(/\D/g, '') : '',
       status: member.status,
+      created_at: formatearParaInputDate(member.created_at),
     });
     setEditingId(member.id);
     setShowFormModal(true);
@@ -197,7 +200,7 @@ export default function RegistroClient({ profile }: Props) {
       cleanPhone = phoneVal.cleanPhone;
     }
 
-    const payload = {
+    const payload: any = {
       full_name: form.full_name.trim(),
       age: form.age ? parseInt(form.age) : null,
       gender: form.gender || null,
@@ -208,6 +211,10 @@ export default function RegistroClient({ profile }: Props) {
       is_consolidated: form.status === 'Consolidado',
       house_group_id: null,
     };
+
+    if (form.created_at) {
+      payload.created_at = new Date(`${form.created_at}T12:00:00Z`).toISOString();
+    }
 
     try {
       if (editingId) {
@@ -414,21 +421,39 @@ export default function RegistroClient({ profile }: Props) {
       </div>
 
 
-      <div className="form-group">
-        <label htmlFor="municipio" className="form-label">Municipio</label>
-        <select
-          id="municipio"
-          className="form-select"
-          value={form.municipio}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, municipio: e.target.value }))
-          }
-        >
-          <option value="">-- Seleccionar Municipio --</option>
-          {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
+      <div className="grid-2">
+        <div className="form-group">
+          <label htmlFor="municipio" className="form-label">Municipio</label>
+          <select
+            id="municipio"
+            className="form-select"
+            value={form.municipio}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, municipio: e.target.value }))
+            }
+          >
+            <option value="">-- Seleccionar Municipio --</option>
+            {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="created_at" className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Calendar size={14} style={{ color: 'var(--gold-primary)' }} />
+            Fecha de Registro
+          </label>
+          <input
+            id="created_at"
+            className="form-input"
+            type="date"
+            value={form.created_at}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, created_at: e.target.value }))
+            }
+          />
+        </div>
       </div>
 
       <div className="form-group">

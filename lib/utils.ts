@@ -42,13 +42,39 @@ export function normalizarCiudad(ciudad: string): string {
 }
 
 export function formatearFecha(fecha: string): string {
-  return new Date(fecha).toLocaleDateString('es-VE', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  try {
+    const d = new Date(fecha.includes('T') ? fecha : `${fecha}T12:00:00Z`);
+    if (isNaN(d.getTime())) return fecha;
+    return d.toLocaleDateString('es-VE', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return fecha;
+  }
+}
+
+export function obtenerFechaActualInput(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function formatearParaInputDate(fecha?: string | null): string {
+  if (!fecha) return obtenerFechaActualInput();
+  try {
+    const d = new Date(fecha.includes('T') ? fecha : `${fecha}T12:00:00Z`);
+    if (isNaN(d.getTime())) return obtenerFechaActualInput();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  } catch {
+    return obtenerFechaActualInput();
+  }
 }
 
 export function formatearFechaCorta(fecha: string): string {

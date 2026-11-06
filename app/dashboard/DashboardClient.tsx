@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -413,6 +413,7 @@ export default function DashboardClient({ profile }: Props) {
     status: 'Nuevo' as Member['status'],
     consolidator_id: profile.id,
     house_group_id: '',
+    created_at: obtenerFechaActualInput(),
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
   const [savingMember, setSavingMember] = useState(false);
@@ -1078,6 +1079,7 @@ export default function DashboardClient({ profile }: Props) {
       ...emptyMemberForm,
       consolidator_id: profile.id,
       house_group_id: '',
+      created_at: obtenerFechaActualInput(),
     });
     setMemberError('');
     setMemberModal({ open: true });
@@ -1094,6 +1096,7 @@ export default function DashboardClient({ profile }: Props) {
       status: member.status,
       consolidator_id: member.consolidator_id || '',
       house_group_id: member.house_group_id || '',
+      created_at: formatearParaInputDate(member.created_at),
     });
     setMemberError('');
     setMemberModal({ open: true, member, isReadOnly: true });
@@ -1116,6 +1119,7 @@ export default function DashboardClient({ profile }: Props) {
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
       house_group_id: member.house_group_id || '',
+      created_at: formatearParaInputDate(member.created_at),
     });
     setMemberError('');
     setMemberModal({ open: true, member, isReadOnly: false });
@@ -1149,7 +1153,20 @@ export default function DashboardClient({ profile }: Props) {
 
     const chosenConsolidator = profiles.find((p) => p.id === memberForm.consolidator_id) || profile;
 
-    const payload = {
+    const payload: {
+      full_name: string;
+      age: number | null;
+      gender: string | null;
+      municipio: string | null;
+      address: string | null;
+      phone: string | null;
+      status: Member['status'];
+      is_consolidated: boolean;
+      house_group_id: string | null;
+      consolidator_id: string;
+      consolidator_name: string;
+      created_at?: string;
+    } = {
       full_name: memberForm.full_name.trim(),
       age: memberForm.age ? parseInt(memberForm.age) : null,
       gender: memberForm.gender || null,
@@ -1162,6 +1179,10 @@ export default function DashboardClient({ profile }: Props) {
       consolidator_id: chosenConsolidator.id,
       consolidator_name: chosenConsolidator.full_name,
     };
+
+    if (memberForm.created_at) {
+      payload.created_at = new Date(`${memberForm.created_at}T12:00:00Z`).toISOString();
+    }
 
     try {
       if (memberModal.member) {
@@ -4145,6 +4166,22 @@ export default function DashboardClient({ profile }: Props) {
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Calendar size={14} style={{ color: 'var(--gold-primary)' }} />
+                  Fecha de Registro
+                </label>
+                <input
+                  className="form-input"
+                  type="date"
+                  value={memberForm.created_at}
+                  disabled={memberModal.isReadOnly}
+                  onChange={(e) =>
+                    setMemberForm((f) => ({ ...f, created_at: e.target.value }))
+                  }
+                />
               </div>
             </div>
 
