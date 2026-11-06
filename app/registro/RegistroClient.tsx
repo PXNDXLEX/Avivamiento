@@ -96,6 +96,8 @@ export default function RegistroClient({ profile }: Props) {
   const handleTabClick = (tab: 'home' | 'list' | 'seguimiento') => {
     setSelectedFollowUpMember(null);
     setActiveTab(tab);
+    fetchMembers(true);
+    fetchProfiles();
   };
   /* Toast */
   const [toast, setToast] = useState<{
@@ -109,15 +111,15 @@ export default function RegistroClient({ profile }: Props) {
   }
 
   /* Fetch members & profiles - estrictamente sus propios registros */
-  const fetchMembers = useCallback(async () => {
-    setLoading(true);
+  const fetchMembers = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const { data } = await supabase
       .from('members')
       .select('*')
       .eq('consolidator_id', profile.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
-    setMembers(data ?? []);
+    if (data) setMembers(data);
     setLoading(false);
   }, [supabase, profile.id]);
 
@@ -127,9 +129,35 @@ export default function RegistroClient({ profile }: Props) {
   }, [profile]);
 
   useEffect(() => {
-    fetchMembers();
+    fetchMembers(false);
     fetchProfiles();
   }, [fetchMembers, fetchProfiles]);
+
+  // Al cambiar de pestaña, asegurar datos frescos de la BD
+  useEffect(() => {
+    fetchMembers(true);
+  }, [activeTab, fetchMembers]);
+
+  // Sondeo en segundo plano y al volver al navegador
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchMembers(true);
+      }
+    };
+    window.addEventListener('focus', onVisibilityChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchMembers(true);
+      }
+    }, 30000);
+    return () => {
+      window.removeEventListener('focus', onVisibilityChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      clearInterval(timer);
+    };
+  }, [fetchMembers]);
 
   async function toggleConsolidado(member: Member) {
     const isNowConsolidated = member.status !== 'Consolidado' && !member.is_consolidated;

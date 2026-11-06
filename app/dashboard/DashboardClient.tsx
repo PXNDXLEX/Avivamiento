@@ -486,8 +486,8 @@ export default function DashboardClient({ profile }: Props) {
   }
 
   /* ── Data fetching ── */
-  const fetchMembers = useCallback(async () => {
-    setLoadingMembers(true);
+  const fetchMembers = useCallback(async (silent = false) => {
+    if (!silent) setLoadingMembers(true);
     let query = supabase
       .from('members')
       .select('*')
@@ -500,24 +500,24 @@ export default function DashboardClient({ profile }: Props) {
     }
 
     const { data } = await query;
-    setMembers(data ?? []);
+    if (data) setMembers(data);
     setLoadingMembers(false);
   }, [supabase, profile.id, profile.role]);
 
-  const fetchProfiles = useCallback(async () => {
+  const fetchProfiles = useCallback(async (silent = false) => {
     // Si es consolidador, no ver usuarios ni perfiles ajenos
     if (profile.role === 'user') {
       setProfiles([profile]);
       setLoadingProfiles(false);
       return;
     }
-    setLoadingProfiles(true);
+    if (!silent) setLoadingProfiles(true);
     const { data } = await supabase
       .from('profiles')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
-    setProfiles(data ?? []);
+    if (data) setProfiles(data);
     setLoadingProfiles(false);
   }, [supabase, profile]);
 
@@ -530,9 +530,9 @@ export default function DashboardClient({ profile }: Props) {
         supabase.from('attendances').select('*'),
         supabase.from('house_group_meetings').select('*')
       ]);
-      setHouseGroups(hgData ?? []);
-      setAttendances(attData ?? []);
-      setHouseGroupMeetings(meetData ?? []);
+      if (hgData) setHouseGroups(hgData);
+      if (attData) setAttendances(attData);
+      if (meetData) setHouseGroupMeetings(meetData);
     } catch (e) {
       // Ignorar de forma silenciosa si las tablas no existen todavía
     }
@@ -624,11 +624,18 @@ export default function DashboardClient({ profile }: Props) {
     setLoadingFollowUps(false);
   }, [supabase, profile.role]);
 
+  /* Función central para refrescar todos los datos desde la BD (usada al tocar pestañas o por sondeo) */
+  const refreshAllData = useCallback(async (silent = true) => {
+    return Promise.allSettled([
+      fetchMembers(silent),
+      fetchProfiles(silent),
+      fetchCasasData(),
+      fetchAllFollowUps(),
+    ]);
+  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
+
   useEffect(() => {
-    fetchMembers();
-    fetchCasasData();
-    fetchAllFollowUps();
-    fetchProfiles();
+    refreshAllData(false);
     // Auto-ping de fondo silencioso en navegador si hace más de 6 horas
     try {
       const lastPingTime = localStorage.getItem('last_keepalive_ping_client');
@@ -638,19 +645,37 @@ export default function DashboardClient({ profile }: Props) {
         fetch('/api/keepalive?source=browser_heartbeat').catch(() => {});
       }
     } catch {}
-  }, [fetchMembers, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
+  }, [refreshAllData]);
 
+  // Al cambiar de pestaña, asegurar sincronización fresca con la base de datos
   useEffect(() => {
-    if (activeTab === 'members' || activeTab === 'seguimiento' || activeTab === 'users' || activeTab === 'casas' || activeTab === 'equipo' || activeTab === 'reports') {
-      fetchProfiles();
-    }
-    if (activeTab === 'home' || activeTab === 'members' || activeTab === 'reports' || activeTab === 'casas' || activeTab === 'asistencia') {
-      fetchCasasData();
-    }
-    if (activeTab === 'reports' || activeTab === 'seguimiento') {
-      fetchAllFollowUps();
-    }
-  }, [activeTab, fetchProfiles, fetchCasasData, fetchAllFollowUps]);
+    refreshAllData(true);
+  }, [activeTab, refreshAllData]);
+
+  // Actualización automática al volver a enfocar la ventana o cambiar de pestaña del navegador
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshAllData(true);
+      }
+    };
+    window.addEventListener('focus', onVisibilityChange);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onVisibilityChange);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [refreshAllData]);
+
+  // Sondeo suave periódico cada 30 segundos mientras la pestaña esté activa
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        refreshAllData(true);
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [refreshAllData]);
 
   /* ── Registro de actividad del usuario (En línea / Desconectado) ── */
   const lastActivityRecordedRef = useRef<number>(0);
@@ -1493,6 +1518,8 @@ export default function DashboardClient({ profile }: Props) {
       setSelectedCasaAttendanceId(null);
     }
     setActiveTab(tabKey);
+    // Cada vez que se toca una pestaña del menú, forzar recarga en tiempo real desde la BD
+    refreshAllData(true);
   };
 
   /* ══════════════════════════════════════════════════════
