@@ -657,48 +657,98 @@ export default function MemberFollowUpSheet({
                   marginBottom: '0.5rem',
                 }}
               >
-                {currentMember.phone ? (
+                {currentMember.phone || currentMember.secondary_phone ? (
                   <>
-                    <a
-                      href={`tel:${currentMember.phone}`}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        color: 'var(--text-primary)',
-                        fontSize: '0.9rem',
-                        fontWeight: 600,
-                        textDecoration: 'none',
-                      }}
-                    >
-                      <Phone size={14} style={{ color: 'var(--gold-primary)' }} />
-                      {formatearTelefono(currentMember.phone)}
-                    </a>
+                    {currentMember.phone && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                        <a
+                          href={`tel:${currentMember.phone}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.9rem',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <Phone size={14} style={{ color: 'var(--gold-primary)' }} />
+                          {formatearTelefono(currentMember.phone)}
+                        </a>
 
-                    <a
-                      href={getWhatsAppUrl(
-                        currentMember.phone,
-                        `Hola ${currentMember.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
-                      )}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn btn-primary"
-                      style={{
-                        background: '#25D366',
-                        borderColor: '#25D366',
-                        color: '#fff',
-                        fontSize: '0.75rem',
-                        padding: '0.25rem 0.65rem',
-                        borderRadius: '6px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.35rem',
-                      }}
-                      title="Abrir chat en WhatsApp"
-                    >
-                      <MessageCircle size={13} />
-                      WhatsApp
-                    </a>
+                        <a
+                          href={getWhatsAppUrl(
+                            currentMember.phone,
+                            `Hola ${currentMember.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-primary"
+                          style={{
+                            background: '#25D366',
+                            borderColor: '#25D366',
+                            color: '#fff',
+                            fontSize: '0.75rem',
+                            padding: '0.25rem 0.65rem',
+                            borderRadius: '6px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                          }}
+                          title="Abrir chat en WhatsApp"
+                        >
+                          <MessageCircle size={13} />
+                          WhatsApp
+                        </a>
+                      </div>
+                    )}
+
+                    {currentMember.secondary_phone && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                        <a
+                          href={`tel:${currentMember.secondary_phone}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                            textDecoration: 'none',
+                            opacity: 0.9,
+                          }}
+                        >
+                          <Phone size={13} style={{ color: 'var(--gold-primary)' }} />
+                          {formatearTelefono(currentMember.secondary_phone)}
+                        </a>
+
+                        <a
+                          href={getWhatsAppUrl(
+                            currentMember.secondary_phone,
+                            `Hola ${currentMember.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-secondary"
+                          style={{
+                            background: 'rgba(37, 211, 102, 0.15)',
+                            borderColor: '#25D366',
+                            color: '#25D366',
+                            fontSize: '0.75rem',
+                            padding: '0.25rem 0.65rem',
+                            borderRadius: '6px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                          }}
+                          title="Abrir WhatsApp secundario"
+                        >
+                          <MessageCircle size={13} />
+                          WhatsApp 2
+                        </a>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>

@@ -123,6 +123,22 @@ export function limpiarTelefonoInput(value: string): string {
 }
 
 /**
+ * Limpia la entrada telefónica de forma dinámica:
+ * - Si contiene '+', asegura el '+' al inicio y permite hasta 15 dígitos numéricos (estándar internacional E.164).
+ * - Si no contiene '+', solo permite números y limita a 11 dígitos (nacional venezolano).
+ */
+export function limpiarTelefonoDinamico(value: string): string {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (trimmed.includes('+') || trimmed.startsWith('+')) {
+    const digits = trimmed.replace(/\D/g, '');
+    return `+${digits.slice(0, 15)}`;
+  }
+  const digits = trimmed.replace(/\D/g, '');
+  return digits.slice(0, 11);
+}
+
+/**
  * Limpia la entrada para números internacionales:
  * Asegura el signo '+' al inicio y permite hasta 15 dígitos numéricos (estándar E.164).
  */

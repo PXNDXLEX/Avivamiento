@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoInternacionalInput } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoDinamico } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -411,13 +411,14 @@ export default function DashboardClient({ profile }: Props) {
     municipio: '',
     address: '',
     phone: '',
+    secondary_phone: '',
     status: 'Nuevo' as Member['status'],
     consolidator_id: profile.id,
     house_group_id: '',
     created_at: obtenerFechaActualInput(),
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
-  const [isInternationalPhone, setIsInternationalPhone] = useState(false);
+  const [showSecondaryPhone, setShowSecondaryPhone] = useState(false);
   const [savingMember, setSavingMember] = useState(false);
   const [memberError, setMemberError] = useState('');
   const [assigningConsolidatorId, setAssigningConsolidatorId] = useState<string | null>(null);
@@ -1102,7 +1103,7 @@ export default function DashboardClient({ profile }: Props) {
     if (profile.role === 'pastor') return;
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
-    setIsInternationalPhone(false);
+    setShowSecondaryPhone(false);
     setMemberForm({
       ...emptyMemberForm,
       consolidator_id: profile.id,
@@ -1115,7 +1116,8 @@ export default function DashboardClient({ profile }: Props) {
 
   function openViewMember(member: Member) {
     const isIntl = isTelefonoInternacional(member.phone);
-    setIsInternationalPhone(isIntl);
+    const isIntlSec = isTelefonoInternacional(member.secondary_phone);
+    setShowSecondaryPhone(!!member.secondary_phone);
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
@@ -1123,6 +1125,7 @@ export default function DashboardClient({ profile }: Props) {
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
+      secondary_phone: member.secondary_phone ? (isIntlSec ? member.secondary_phone : member.secondary_phone.replace(/\D/g, '')) : '',
       status: member.status,
       consolidator_id: member.consolidator_id || '',
       house_group_id: member.house_group_id || '',
@@ -1140,7 +1143,8 @@ export default function DashboardClient({ profile }: Props) {
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
     const isIntl = isTelefonoInternacional(member.phone);
-    setIsInternationalPhone(isIntl);
+    const isIntlSec = isTelefonoInternacional(member.secondary_phone);
+    setShowSecondaryPhone(!!member.secondary_phone);
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
@@ -1148,6 +1152,7 @@ export default function DashboardClient({ profile }: Props) {
       municipio: member.municipio ?? '',
       address: member.address ?? '',
       phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
+      secondary_phone: member.secondary_phone ? (isIntlSec ? member.secondary_phone : member.secondary_phone.replace(/\D/g, '')) : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
       house_group_id: member.house_group_id || '',
@@ -1167,25 +1172,47 @@ export default function DashboardClient({ profile }: Props) {
       return;
     }
 
-    // Validación de teléfono (venezolano o internacional, opcional: si no tiene teléfono se permite guardar en blanco)
+    // Validación de teléfono principal (opcional: si no tiene teléfono se permite guardar en blanco)
     const digitsOnly = memberForm.phone ? memberForm.phone.replace(/\D/g, '') : '';
     let cleanMemberPhone: string | null = null;
 
     if (digitsOnly) {
-      if (isInternationalPhone) {
+      if (isTelefonoInternacional(memberForm.phone)) {
         const phoneVal = validarTelefonoInternacional(memberForm.phone);
         if (!phoneVal.isValid) {
-          setMemberError(phoneVal.error || 'Número internacional inválido.');
+          setMemberError(phoneVal.error || 'Número internacional principal inválido.');
           return;
         }
         cleanMemberPhone = phoneVal.cleanPhone;
       } else {
         const phoneVal = validarTelefonoVenezolano(memberForm.phone);
         if (!phoneVal.isValid) {
-          setMemberError(phoneVal.error || 'Número de teléfono inválido.');
+          setMemberError(phoneVal.error || 'Número de teléfono principal inválido.');
           return;
         }
         cleanMemberPhone = phoneVal.cleanPhone;
+      }
+    }
+
+    // Validación de teléfono secundario (opcional)
+    const digitsSecOnly = memberForm.secondary_phone ? memberForm.secondary_phone.replace(/\D/g, '') : '';
+    let cleanMemberSecondaryPhone: string | null = null;
+
+    if (digitsSecOnly) {
+      if (isTelefonoInternacional(memberForm.secondary_phone)) {
+        const phoneVal = validarTelefonoInternacional(memberForm.secondary_phone);
+        if (!phoneVal.isValid) {
+          setMemberError(phoneVal.error || 'Número internacional secundario inválido.');
+          return;
+        }
+        cleanMemberSecondaryPhone = phoneVal.cleanPhone;
+      } else {
+        const phoneVal = validarTelefonoVenezolano(memberForm.secondary_phone);
+        if (!phoneVal.isValid) {
+          setMemberError(phoneVal.error || 'Número de teléfono secundario inválido.');
+          return;
+        }
+        cleanMemberSecondaryPhone = phoneVal.cleanPhone;
       }
     }
 
@@ -1201,6 +1228,7 @@ export default function DashboardClient({ profile }: Props) {
       municipio: string | null;
       address: string | null;
       phone: string | null;
+      secondary_phone?: string | null;
       status: Member['status'];
       is_consolidated: boolean;
       house_group_id: string | null;
@@ -1214,6 +1242,7 @@ export default function DashboardClient({ profile }: Props) {
       municipio: memberForm.municipio || null,
       address: memberForm.address || null,
       phone: cleanMemberPhone,
+      secondary_phone: cleanMemberSecondaryPhone,
       status: memberForm.status,
       is_consolidated: memberForm.status === 'Consolidado',
       house_group_id: memberForm.house_group_id || null,
@@ -2152,6 +2181,11 @@ export default function DashboardClient({ profile }: Props) {
                         </td>
                         <td className="text-secondary">
                           {formatearTelefono(member.phone) || '—'}
+                          {member.secondary_phone && (
+                            <div style={{ fontSize: '0.75rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                              {formatearTelefono(member.secondary_phone)}
+                            </div>
+                          )}
                         </td>
                         <td style={{ minWidth: '180px' }}>
                           {profile.role === 'principal' || profile.role === 'admin' ? (
@@ -2624,15 +2658,22 @@ export default function DashboardClient({ profile }: Props) {
                                 {member.status}
                               </span>
                             </td>
-                            <td className="text-secondary">{formatearTelefono(member.phone) || '—'}</td>
+                            <td className="text-secondary">
+                              {formatearTelefono(member.phone) || '—'}
+                              {member.secondary_phone && (
+                                <div style={{ fontSize: '0.75rem', opacity: 0.8, color: 'var(--text-muted)' }}>
+                                  {formatearTelefono(member.secondary_phone)}
+                                </div>
+                              )}
+                            </td>
                             <td>
                               <span className="text-secondary" style={{ fontSize: '0.85rem' }}>
                                 {member.consolidator_name || 'Sin asignar'}
                               </span>
                             </td>
                             <td>
-                              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                {member.phone ? (
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                                {member.phone && (
                                   <a
                                     href={getWhatsAppUrl(
                                       member.phone,
@@ -2642,11 +2683,27 @@ export default function DashboardClient({ profile }: Props) {
                                     rel="noreferrer"
                                     className="btn btn-primary btn-icon"
                                     style={{ background: '#25D366', borderColor: '#25D366', color: '#fff' }}
-                                    title="Enviar WhatsApp"
+                                    title={`Enviar WhatsApp a ${formatearTelefono(member.phone)}`}
                                   >
                                     <MessageCircle size={14} />
                                   </a>
-                                ) : (
+                                )}
+                                {member.secondary_phone && (
+                                  <a
+                                    href={getWhatsAppUrl(
+                                      member.secondary_phone,
+                                      `Hola ${member.full_name}, Dios te bendiga 🙏. Te escribo de la Iglesia Avivamiento León de la Tribu de Judá.`
+                                    )}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-secondary btn-icon"
+                                    style={{ background: 'rgba(37, 211, 102, 0.15)', borderColor: '#25D366', color: '#25D366' }}
+                                    title={`Enviar WhatsApp secundario a ${formatearTelefono(member.secondary_phone)}`}
+                                  >
+                                    <MessageCircle size={14} />
+                                  </a>
+                                )}
+                                {!member.phone && !member.secondary_phone && (
                                   <span className="text-muted" style={{ fontSize: '0.8rem' }}>N/A</span>
                                 )}
                               </div>
@@ -4297,192 +4354,244 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                <label htmlFor="member-phone" className="form-label" style={{ margin: 0 }}>
-                  <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
-                </label>
-                {!memberModal.isReadOnly && (
+              <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem' }}>
+                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                  {memberForm.phone.startsWith('+')
+                    ? '🌐 Modo Internacional'
+                    : '🇻🇪 11 dígitos (0414, 0424...) o escribe +'}
+                </span>
+              </label>
+
+              <input
+                id="member-phone"
+                className="form-input"
+                type="tel"
+                maxLength={16}
+                placeholder="Ej: 04141234567 o +1 305 123 4567 (opcional)"
+                value={memberForm.phone}
+                disabled={memberModal.isReadOnly}
+                onChange={(e) => {
+                  const clean = limpiarTelefonoDinamico(e.target.value);
+                  setMemberForm((f) => ({ ...f, phone: clean }));
+                }}
+                style={{
+                  borderColor: memberForm.phone
+                    ? memberForm.phone.startsWith('+')
+                      ? memberForm.phone !== '+' && validarTelefonoInternacional(memberForm.phone).isValid
+                        ? '#10b981'
+                        : '#e74c3c'
+                      : validarTelefonoVenezolano(memberForm.phone).isValid
+                      ? '#10b981'
+                      : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
+                      ? '#e74c3c'
+                      : 'var(--border-gold)'
+                    : undefined,
+                }}
+              />
+
+              {!memberForm.phone ? (
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                  Puedes escribir un número nacional (0414...) o internacional iniciando con + (+1..., +57...). Opcional.
+                </p>
+              ) : memberForm.phone.startsWith('+') ? (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    if (memberForm.phone === '+') {
+                      return (
+                        <span style={{ color: 'var(--gold)', fontSize: '0.72rem' }}>
+                          🌐 Escribe el código de país y el número (ej: +13051234567 o +573001234567)
+                        </span>
+                      );
+                    }
+                    const val = validarTelefonoInternacional(memberForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número internacional válido ({formatearTelefono(memberForm.phone)})
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#e74c3c' }}>
+                        ⚠️ {val.error}
+                      </span>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                  {(() => {
+                    const val = validarTelefonoVenezolano(memberForm.phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo nacional no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422 (o escribe + para internacional).
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Botón para agregar teléfono adicional */}
+              {!showSecondaryPhone && !memberModal.isReadOnly && (
+                <div style={{ marginTop: '0.45rem' }}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsInternationalPhone((prev) => {
-                        const next = !prev;
-                        if (next) {
-                          if (!memberForm.phone || !memberForm.phone.startsWith('+')) {
-                            setMemberForm((f) => ({ ...f, phone: '+' }));
-                          }
-                        } else {
-                          if (memberForm.phone.startsWith('+')) {
-                            const digits = memberForm.phone.replace(/\D/g, '');
-                            const cleaned = digits.startsWith('58') ? '0' + digits.slice(2, 12) : digits.slice(0, 11);
-                            setMemberForm((f) => ({ ...f, phone: cleaned }));
-                          }
-                        }
-                        return next;
-                      });
-                    }}
+                    onClick={() => setShowSecondaryPhone(true)}
                     className="btn btn-secondary"
                     style={{
-                      fontSize: '0.72rem',
-                      padding: '0.22rem 0.55rem',
+                      fontSize: '0.75rem',
+                      padding: '0.3rem 0.7rem',
                       borderRadius: '6px',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: isInternationalPhone ? 'rgba(212, 160, 23, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                      borderColor: isInternationalPhone ? 'var(--gold)' : 'var(--border-gold)',
-                      color: isInternationalPhone ? 'var(--gold)' : 'var(--text-muted)',
+                      border: '1px dashed var(--border-gold)',
+                      color: 'var(--gold)',
+                      background: 'rgba(212, 160, 23, 0.05)',
                       cursor: 'pointer',
                     }}
-                    title="Alternar entre número nacional venezolano o internacional"
                   >
-                    <Globe size={13} />
-                    {isInternationalPhone ? '🌐 Modo Internacional Activo' : '🌐 ¿Número internacional?'}
+                    <Plus size={13} />
+                    Agregar otro teléfono
                   </button>
-                )}
-              </div>
+                </div>
+              )}
 
-              {isInternationalPhone ? (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prefijos comunes:</span>
-                    {[
-                      { code: '+1', flag: '🇺🇸', label: 'USA' },
-                      { code: '+57', flag: '🇨🇴', label: 'Col' },
-                      { code: '+56', flag: '🇨🇱', label: 'Chile' },
-                      { code: '+34', flag: '🇪🇸', label: 'Esp' },
-                      { code: '+51', flag: '🇵🇪', label: 'Perú' },
-                      { code: '+54', flag: '🇦🇷', label: 'Arg' },
-                      { code: '+507', flag: '🇵🇦', label: 'Panamá' },
-                    ].map((item) => (
+              {/* Campo de teléfono secundario */}
+              {(showSecondaryPhone || (memberModal.isReadOnly && memberForm.secondary_phone)) && (
+                <div
+                  style={{
+                    marginTop: '0.65rem',
+                    padding: '0.65rem',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(212, 160, 23, 0.15)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <label htmlFor="member-secondary-phone" className="form-label" style={{ margin: 0 }}>
+                      <span>Teléfono Secundario <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+                    </label>
+                    {!memberModal.isReadOnly && (
                       <button
-                        key={item.code}
                         type="button"
-                        disabled={memberModal.isReadOnly}
                         onClick={() => {
-                          const digits = memberForm.phone.replace(/\D/g, '');
-                          if (digits.length <= 3) {
-                            setMemberForm((f) => ({ ...f, phone: item.code }));
-                          } else {
-                            setMemberForm((f) => ({ ...f, phone: `${item.code} ` }));
-                          }
+                          setShowSecondaryPhone(false);
+                          setMemberForm((f) => ({ ...f, secondary_phone: '' }));
                         }}
                         style={{
-                          background: 'rgba(255, 255, 255, 0.04)',
-                          border: '1px solid var(--border-gold)',
-                          borderRadius: '4px',
-                          color: 'var(--text-secondary)',
-                          fontSize: '0.68rem',
-                          padding: '0.15rem 0.4rem',
-                          cursor: memberModal.isReadOnly ? 'default' : 'pointer',
+                          fontSize: '0.72rem',
+                          color: '#e74c3c',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: '0.1rem 0.3rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
                         }}
+                        title="Quitar teléfono secundario"
                       >
-                        {item.flag} {item.code}
+                        <X size={12} />
+                        Quitar
                       </button>
-                    ))}
+                    )}
                   </div>
 
                   <input
-                    id="member-phone"
+                    id="member-secondary-phone"
                     className="form-input"
                     type="tel"
                     maxLength={16}
-                    placeholder="Ej: +1 305 123 4567 o +57 300 123 4567"
-                    value={memberForm.phone}
+                    placeholder="Ej: 04121234567 o +1 305 123 4567"
+                    value={memberForm.secondary_phone}
                     disabled={memberModal.isReadOnly}
                     onChange={(e) => {
-                      const clean = limpiarTelefonoInternacionalInput(e.target.value);
-                      setMemberForm((f) => ({ ...f, phone: clean }));
+                      const clean = limpiarTelefonoDinamico(e.target.value);
+                      setMemberForm((f) => ({ ...f, secondary_phone: clean }));
                     }}
                     style={{
-                      borderColor: memberForm.phone && memberForm.phone !== '+'
-                        ? validarTelefonoInternacional(memberForm.phone).isValid
+                      borderColor: memberForm.secondary_phone
+                        ? memberForm.secondary_phone.startsWith('+')
+                          ? memberForm.secondary_phone !== '+' && validarTelefonoInternacional(memberForm.secondary_phone).isValid
+                            ? '#10b981'
+                            : '#e74c3c'
+                          : validarTelefonoVenezolano(memberForm.secondary_phone).isValid
                           ? '#10b981'
-                          : '#e74c3c'
-                        : 'var(--border-gold)',
-                    }}
-                  />
-
-                  {(!memberForm.phone || memberForm.phone === '+') ? (
-                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                      Escribe el número con el código de país (ej. +1... o +57...). Se puede dejar vacío si no tiene teléfono.
-                    </p>
-                  ) : (
-                    <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                      {(() => {
-                        const val = validarTelefonoInternacional(memberForm.phone);
-                        if (val.isValid) {
-                          return (
-                            <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                              ✓ Número internacional válido ({formatearTelefono(memberForm.phone)})
-                            </span>
-                          );
-                        }
-                        return (
-                          <span style={{ color: '#e74c3c' }}>
-                            ⚠️ {val.error}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input
-                    id="member-phone"
-                    className="form-input"
-                    type="tel"
-                    inputMode="numeric"
-                    maxLength={11}
-                    placeholder="Ej: 04141234567 (opcional)"
-                    value={memberForm.phone}
-                    disabled={memberModal.isReadOnly}
-                    onChange={(e) => {
-                      const clean = limpiarTelefonoInput(e.target.value);
-                      setMemberForm((f) => ({ ...f, phone: clean }));
-                    }}
-                    style={{
-                      borderColor: memberForm.phone
-                        ? validarTelefonoVenezolano(memberForm.phone).isValid
-                          ? '#10b981'
-                          : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
+                          : memberForm.secondary_phone.length >= 4 && !validarTelefonoVenezolano(memberForm.secondary_phone).isPrefixValid
                           ? '#e74c3c'
                           : 'var(--border-gold)'
                         : undefined,
                     }}
                   />
-                  {!memberForm.phone ? (
-                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                      Puedes dejar este campo en blanco si la persona no tiene teléfono.
-                    </p>
-                  ) : (
+
+                  {memberForm.secondary_phone && (
                     <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                      {(() => {
-                        const val = validarTelefonoVenezolano(memberForm.phone);
-                        if (val.isValid) {
-                          return (
-                            <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                              ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
-                            </span>
-                          );
-                        }
-                        if (!val.isPrefixValid) {
+                      {memberForm.secondary_phone.startsWith('+') ? (
+                        (() => {
+                          if (memberForm.secondary_phone === '+') {
+                            return (
+                              <span style={{ color: 'var(--gold)', fontSize: '0.72rem' }}>
+                                🌐 Escribe el código de país y el número (ej: +13051234567 o +573001234567)
+                              </span>
+                            );
+                          }
+                          const val = validarTelefonoInternacional(memberForm.secondary_phone);
+                          if (val.isValid) {
+                            return (
+                              <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                                ✓ Número internacional secundario válido ({formatearTelefono(memberForm.secondary_phone)})
+                              </span>
+                            );
+                          }
                           return (
                             <span style={{ color: '#e74c3c' }}>
-                              ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                              ⚠️ {val.error}
                             </span>
                           );
-                        }
-                        return (
-                          <span style={{ color: '#f59e0b' }}>
-                            Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
-                          </span>
-                        );
-                      })()}
+                        })()
+                      ) : (
+                        (() => {
+                          const val = validarTelefonoVenezolano(memberForm.secondary_phone);
+                          if (val.isValid) {
+                            return (
+                              <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                                ✓ Número secundario válido ({memberForm.secondary_phone.slice(0, 4)}-{memberForm.secondary_phone.slice(4)})
+                              </span>
+                            );
+                          }
+                          if (!val.isPrefixValid) {
+                            return (
+                              <span style={{ color: '#e74c3c' }}>
+                                ⚠️ Prefijo nacional no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422 (o escribe + para internacional).
+                              </span>
+                            );
+                          }
+                          return (
+                            <span style={{ color: '#f59e0b' }}>
+                              Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.secondary_phone.length} dígitos ({memberForm.secondary_phone.length}/11)
+                            </span>
+                          );
+                        })()
+                      )}
                     </div>
                   )}
-                </>
+                </div>
               )}
             </div>
 

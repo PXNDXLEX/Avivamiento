@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoInternacionalInput } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoDinamico } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -73,11 +73,12 @@ export default function RegistroClient({ profile }: Props) {
     municipio: '',
     address: '',
     phone: '',
+    secondary_phone: '',
     status: 'Nuevo' as Member['status'],
     created_at: obtenerFechaActualInput(),
   };
   const [form, setForm] = useState(emptyForm);
-  const [isInternationalPhone, setIsInternationalPhone] = useState(false);
+  const [showSecondaryPhone, setShowSecondaryPhone] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -182,7 +183,7 @@ export default function RegistroClient({ profile }: Props) {
   }
 
   function resetForm() {
-    setIsInternationalPhone(false);
+    setShowSecondaryPhone(false);
     setForm(emptyForm);
     setError('');
     setEditingId(null);
@@ -195,15 +196,17 @@ export default function RegistroClient({ profile }: Props) {
   }
 
   function startEdit(member: Member) {
-    const isIntl = isTelefonoInternacional(member.phone);
-    setIsInternationalPhone(isIntl);
+    const isIntlPhone = isTelefonoInternacional(member.phone);
+    const isIntlSec = isTelefonoInternacional(member.secondary_phone);
+    setShowSecondaryPhone(!!member.secondary_phone);
     setForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
+      phone: member.phone ? (isIntlPhone ? member.phone : member.phone.replace(/\D/g, '')) : '',
+      secondary_phone: member.secondary_phone ? (isIntlSec ? member.secondary_phone : member.secondary_phone.replace(/\D/g, '')) : '',
       status: member.status,
       created_at: formatearParaInputDate(member.created_at),
     });
@@ -219,15 +222,15 @@ export default function RegistroClient({ profile }: Props) {
     }
 
     setSaving(true);
-    // Validación de teléfono (venezolano o internacional, opcional: si no tiene número se permite guardar en blanco)
+    // Validación de teléfono principal (opcional: si no tiene número se permite guardar en blanco)
     const digitsOnly = form.phone ? form.phone.replace(/\D/g, '') : '';
     let cleanPhone: string | null = null;
 
     if (digitsOnly) {
-      if (isInternationalPhone) {
+      if (isTelefonoInternacional(form.phone)) {
         const phoneVal = validarTelefonoInternacional(form.phone);
         if (!phoneVal.isValid) {
-          setError(phoneVal.error || 'Número internacional inválido.');
+          setError(phoneVal.error || 'Número internacional principal inválido.');
           setSaving(false);
           return;
         }
@@ -235,11 +238,35 @@ export default function RegistroClient({ profile }: Props) {
       } else {
         const phoneVal = validarTelefonoVenezolano(form.phone);
         if (!phoneVal.isValid) {
-          setError(phoneVal.error || 'Número de teléfono inválido.');
+          setError(phoneVal.error || 'Número de teléfono principal inválido.');
           setSaving(false);
           return;
         }
         cleanPhone = phoneVal.cleanPhone;
+      }
+    }
+
+    // Validación de teléfono secundario (opcional)
+    const digitsSecOnly = form.secondary_phone ? form.secondary_phone.replace(/\D/g, '') : '';
+    let cleanSecondaryPhone: string | null = null;
+
+    if (digitsSecOnly) {
+      if (isTelefonoInternacional(form.secondary_phone)) {
+        const phoneVal = validarTelefonoInternacional(form.secondary_phone);
+        if (!phoneVal.isValid) {
+          setError(phoneVal.error || 'Número internacional secundario inválido.');
+          setSaving(false);
+          return;
+        }
+        cleanSecondaryPhone = phoneVal.cleanPhone;
+      } else {
+        const phoneVal = validarTelefonoVenezolano(form.secondary_phone);
+        if (!phoneVal.isValid) {
+          setError(phoneVal.error || 'Número de teléfono secundario inválido.');
+          setSaving(false);
+          return;
+        }
+        cleanSecondaryPhone = phoneVal.cleanPhone;
       }
     }
 
@@ -250,6 +277,7 @@ export default function RegistroClient({ profile }: Props) {
       municipio: form.municipio || null,
       address: form.address || null,
       phone: cleanPhone,
+      secondary_phone: cleanSecondaryPhone,
       status: form.status,
       is_consolidated: form.status === 'Consolidado',
       house_group_id: null,
@@ -309,6 +337,7 @@ export default function RegistroClient({ profile }: Props) {
     return (
       m.full_name.toLowerCase().includes(q) ||
       (m.phone ?? '').toLowerCase().includes(q) ||
+      (m.secondary_phone ?? '').toLowerCase().includes(q) ||
       (m.municipio ?? '').toLowerCase().includes(q) ||
       (m.address ?? '').toLowerCase().includes(q) ||
       m.status.toLowerCase().includes(q)
@@ -339,6 +368,7 @@ export default function RegistroClient({ profile }: Props) {
       const match =
         m.full_name.toLowerCase().includes(q) ||
         (m.phone ?? '').toLowerCase().includes(q) ||
+        (m.secondary_phone ?? '').toLowerCase().includes(q) ||
         (m.municipio ?? '').toLowerCase().includes(q);
       if (!match) return false;
     }
@@ -514,187 +544,240 @@ export default function RegistroClient({ profile }: Props) {
       </div>
 
       <div className="form-group">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-          <label htmlFor="phone" className="form-label" style={{ margin: 0 }}>
-            <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              setIsInternationalPhone((prev) => {
-                const next = !prev;
-                if (next) {
-                  if (!form.phone || !form.phone.startsWith('+')) {
-                    setForm((f) => ({ ...f, phone: '+' }));
-                  }
-                } else {
-                  if (form.phone.startsWith('+')) {
-                    const digits = form.phone.replace(/\D/g, '');
-                    const cleaned = digits.startsWith('58') ? '0' + digits.slice(2, 12) : digits.slice(0, 11);
-                    setForm((f) => ({ ...f, phone: cleaned }));
-                  }
-                }
-                return next;
-              });
-            }}
-            className="btn btn-secondary"
-            style={{
-              fontSize: '0.72rem',
-              padding: '0.22rem 0.55rem',
-              borderRadius: '6px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-              background: isInternationalPhone ? 'rgba(212, 160, 23, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-              borderColor: isInternationalPhone ? 'var(--gold)' : 'var(--border-gold)',
-              color: isInternationalPhone ? 'var(--gold)' : 'var(--text-muted)',
-              cursor: 'pointer',
-            }}
-            title="Alternar entre número nacional venezolano o internacional"
-          >
-            <Globe size={13} />
-            {isInternationalPhone ? '🌐 Modo Internacional Activo' : '🌐 ¿Número internacional?'}
-          </button>
-        </div>
+        <label htmlFor="phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem' }}>
+          <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            {form.phone.startsWith('+')
+              ? '🌐 Modo Internacional'
+              : '🇻🇪 11 dígitos (0414, 0424...) o escribe +'}
+          </span>
+        </label>
 
-        {isInternationalPhone ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
-              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prefijos comunes:</span>
-              {[
-                { code: '+1', flag: '🇺🇸', label: 'USA' },
-                { code: '+57', flag: '🇨🇴', label: 'Col' },
-                { code: '+56', flag: '🇨🇱', label: 'Chile' },
-                { code: '+34', flag: '🇪🇸', label: 'Esp' },
-                { code: '+51', flag: '🇵🇪', label: 'Perú' },
-                { code: '+54', flag: '🇦🇷', label: 'Arg' },
-                { code: '+507', flag: '🇵🇦', label: 'Panamá' },
-              ].map((item) => (
-                <button
-                  key={item.code}
-                  type="button"
-                  onClick={() => {
-                    const digits = form.phone.replace(/\D/g, '');
-                    if (digits.length <= 3) {
-                      setForm((f) => ({ ...f, phone: item.code }));
-                    } else {
-                      setForm((f) => ({ ...f, phone: `${item.code} ` }));
-                    }
-                  }}
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.04)',
-                    border: '1px solid var(--border-gold)',
-                    borderRadius: '4px',
-                    color: 'var(--text-secondary)',
-                    fontSize: '0.68rem',
-                    padding: '0.15rem 0.4rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {item.flag} {item.code}
-                </button>
-              ))}
+        <input
+          id="phone"
+          className="form-input"
+          type="tel"
+          maxLength={16}
+          placeholder="Ej: 04141234567 o +1 305 123 4567 (opcional)"
+          value={form.phone}
+          onChange={(e) => {
+            const clean = limpiarTelefonoDinamico(e.target.value);
+            setForm((f) => ({ ...f, phone: clean }));
+          }}
+          style={{
+            borderColor: form.phone
+              ? form.phone.startsWith('+')
+                ? form.phone !== '+' && validarTelefonoInternacional(form.phone).isValid
+                  ? '#10b981'
+                  : '#e74c3c'
+                : validarTelefonoVenezolano(form.phone).isValid
+                ? '#10b981'
+                : form.phone.length >= 4 && !validarTelefonoVenezolano(form.phone).isPrefixValid
+                ? '#e74c3c'
+                : 'var(--border-gold)'
+              : undefined,
+          }}
+        />
+
+        {!form.phone ? (
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+            Puedes escribir un número nacional (0414...) o internacional iniciando con + (+1..., +57...). Opcional.
+          </p>
+        ) : form.phone.startsWith('+') ? (
+          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+            {(() => {
+              if (form.phone === '+') {
+                return (
+                  <span style={{ color: 'var(--gold)', fontSize: '0.72rem' }}>
+                    🌐 Escribe el código de país y el número (ej: +13051234567 o +573001234567)
+                  </span>
+                );
+              }
+              const val = validarTelefonoInternacional(form.phone);
+              if (val.isValid) {
+                return (
+                  <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                    ✓ Número internacional válido ({formatearTelefono(form.phone)})
+                  </span>
+                );
+              }
+              return (
+                <span style={{ color: '#e74c3c' }}>
+                  ⚠️ {val.error}
+                </span>
+              );
+            })()}
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+            {(() => {
+              const val = validarTelefonoVenezolano(form.phone);
+              if (val.isValid) {
+                return (
+                  <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                    ✓ Número válido ({form.phone.slice(0, 4)}-{form.phone.slice(4)})
+                  </span>
+                );
+              }
+              if (!val.isPrefixValid) {
+                return (
+                  <span style={{ color: '#e74c3c' }}>
+                    ⚠️ Prefijo nacional no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422 (o escribe + para internacional).
+                  </span>
+                );
+              }
+              return (
+                <span style={{ color: '#f59e0b' }}>
+                  Prefijo {val.prefix} ✓ — Faltan {11 - form.phone.length} dígitos ({form.phone.length}/11)
+                </span>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Botón para agregar teléfono adicional */}
+        {!showSecondaryPhone && (
+          <div style={{ marginTop: '0.45rem' }}>
+            <button
+              type="button"
+              onClick={() => setShowSecondaryPhone(true)}
+              className="btn btn-secondary"
+              style={{
+                fontSize: '0.75rem',
+                padding: '0.3rem 0.7rem',
+                borderRadius: '6px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                border: '1px dashed var(--border-gold)',
+                color: 'var(--gold)',
+                background: 'rgba(212, 160, 23, 0.05)',
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={13} />
+              Agregar otro teléfono
+            </button>
+          </div>
+        )}
+
+        {/* Campo de teléfono secundario */}
+        {showSecondaryPhone && (
+          <div
+            style={{
+              marginTop: '0.65rem',
+              padding: '0.65rem',
+              background: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: '8px',
+              border: '1px solid rgba(212, 160, 23, 0.15)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <label htmlFor="secondary_phone" className="form-label" style={{ margin: 0 }}>
+                <span>Teléfono Secundario <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSecondaryPhone(false);
+                  setForm((f) => ({ ...f, secondary_phone: '' }));
+                }}
+                style={{
+                  fontSize: '0.72rem',
+                  color: '#e74c3c',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.1rem 0.3rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                }}
+                title="Quitar teléfono secundario"
+              >
+                <X size={12} />
+                Quitar
+              </button>
             </div>
 
             <input
-              id="phone"
+              id="secondary_phone"
               className="form-input"
               type="tel"
               maxLength={16}
-              placeholder="Ej: +1 305 123 4567 o +57 300 123 4567"
-              value={form.phone}
+              placeholder="Ej: 04121234567 o +1 305 123 4567"
+              value={form.secondary_phone}
               onChange={(e) => {
-                const clean = limpiarTelefonoInternacionalInput(e.target.value);
-                setForm((f) => ({ ...f, phone: clean }));
+                const clean = limpiarTelefonoDinamico(e.target.value);
+                setForm((f) => ({ ...f, secondary_phone: clean }));
               }}
               style={{
-                borderColor: form.phone && form.phone !== '+'
-                  ? validarTelefonoInternacional(form.phone).isValid
+                borderColor: form.secondary_phone
+                  ? form.secondary_phone.startsWith('+')
+                    ? form.secondary_phone !== '+' && validarTelefonoInternacional(form.secondary_phone).isValid
+                      ? '#10b981'
+                      : '#e74c3c'
+                    : validarTelefonoVenezolano(form.secondary_phone).isValid
                     ? '#10b981'
-                    : '#e74c3c'
-                  : 'var(--border-gold)',
-              }}
-            />
-
-            {(!form.phone || form.phone === '+') ? (
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                Escribe el número con el código de país (ej. +1... o +57...). Se puede dejar vacío si no tiene teléfono.
-              </p>
-            ) : (
-              <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                {(() => {
-                  const val = validarTelefonoInternacional(form.phone);
-                  if (val.isValid) {
-                    return (
-                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                        ✓ Número internacional válido ({formatearTelefono(form.phone)})
-                      </span>
-                    );
-                  }
-                  return (
-                    <span style={{ color: '#e74c3c' }}>
-                      ⚠️ {val.error}
-                    </span>
-                  );
-                })()}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <input
-              id="phone"
-              className="form-input"
-              type="tel"
-              inputMode="numeric"
-              maxLength={11}
-              placeholder="Ej: 04141234567 (opcional)"
-              value={form.phone}
-              onChange={(e) => {
-                const clean = limpiarTelefonoInput(e.target.value);
-                setForm((f) => ({ ...f, phone: clean }));
-              }}
-              style={{
-                borderColor: form.phone
-                  ? validarTelefonoVenezolano(form.phone).isValid
-                    ? '#10b981'
-                    : form.phone.length >= 4 && !validarTelefonoVenezolano(form.phone).isPrefixValid
+                    : form.secondary_phone.length >= 4 && !validarTelefonoVenezolano(form.secondary_phone).isPrefixValid
                     ? '#e74c3c'
                     : 'var(--border-gold)'
                   : undefined,
               }}
             />
-            {!form.phone ? (
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                Puedes dejar este campo en blanco si la persona no tiene teléfono.
-              </p>
-            ) : (
+
+            {form.secondary_phone && (
               <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                {(() => {
-                  const val = validarTelefonoVenezolano(form.phone);
-                  if (val.isValid) {
-                    return (
-                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                        ✓ Número válido ({form.phone.slice(0, 4)}-{form.phone.slice(4)})
-                      </span>
-                    );
-                  }
-                  if (!val.isPrefixValid) {
+                {form.secondary_phone.startsWith('+') ? (
+                  (() => {
+                    if (form.secondary_phone === '+') {
+                      return (
+                        <span style={{ color: 'var(--gold)', fontSize: '0.72rem' }}>
+                          🌐 Escribe el código de país y el número (ej: +13051234567 o +573001234567)
+                        </span>
+                      );
+                    }
+                    const val = validarTelefonoInternacional(form.secondary_phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número internacional secundario válido ({formatearTelefono(form.secondary_phone)})
+                        </span>
+                      );
+                    }
                     return (
                       <span style={{ color: '#e74c3c' }}>
-                        ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                        ⚠️ {val.error}
                       </span>
                     );
-                  }
-                  return (
-                    <span style={{ color: '#f59e0b' }}>
-                      Prefijo {val.prefix} ✓ — Faltan {11 - form.phone.length} dígitos ({form.phone.length}/11)
-                    </span>
-                  );
-                })()}
+                  })()
+                ) : (
+                  (() => {
+                    const val = validarTelefonoVenezolano(form.secondary_phone);
+                    if (val.isValid) {
+                      return (
+                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                          ✓ Número secundario válido ({form.secondary_phone.slice(0, 4)}-{form.secondary_phone.slice(4)})
+                        </span>
+                      );
+                    }
+                    if (!val.isPrefixValid) {
+                      return (
+                        <span style={{ color: '#e74c3c' }}>
+                          ⚠️ Prefijo nacional no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422 (o escribe + para internacional).
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#f59e0b' }}>
+                        Prefijo {val.prefix} ✓ — Faltan {11 - form.secondary_phone.length} dígitos ({form.secondary_phone.length}/11)
+                      </span>
+                    );
+                  })()
+                )}
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
@@ -1179,7 +1262,7 @@ export default function RegistroClient({ profile }: Props) {
                             <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>{formatearFecha(m.created_at)}</p>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                           {m.phone && (
                             <a
                               href={getWhatsAppUrl(
@@ -1190,7 +1273,22 @@ export default function RegistroClient({ profile }: Props) {
                               rel="noreferrer"
                               className="btn btn-secondary btn-icon"
                               style={{ width: 32, height: 32, color: '#25D366' }}
-                              title="Contactar por WhatsApp"
+                              title={`Contactar por WhatsApp (${formatearTelefono(m.phone)})`}
+                            >
+                              <MessageCircle size={15} />
+                            </a>
+                          )}
+                          {m.secondary_phone && (
+                            <a
+                              href={getWhatsAppUrl(
+                                m.secondary_phone,
+                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn-secondary btn-icon"
+                              style={{ width: 32, height: 32, color: '#25D366', background: 'rgba(37, 211, 102, 0.1)' }}
+                              title={`Contactar por WhatsApp secundario (${formatearTelefono(m.secondary_phone)})`}
                             >
                               <MessageCircle size={15} />
                             </a>
@@ -1218,21 +1316,38 @@ export default function RegistroClient({ profile }: Props) {
                       </div>
                       
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                        {m.phone && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {(m.phone || m.secondary_phone) && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                             📞{' '}
-                            <a
-                              href={getWhatsAppUrl(
-                                m.phone,
-                                `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ color: 'inherit', textDecoration: 'none' }}
-                              title="Enviar WhatsApp"
-                            >
-                              {formatearTelefono(m.phone)}
-                            </a>
+                            {m.phone && (
+                              <a
+                                href={getWhatsAppUrl(
+                                  m.phone,
+                                  `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                                )}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ color: 'inherit', textDecoration: 'none' }}
+                                title="Enviar WhatsApp"
+                              >
+                                {formatearTelefono(m.phone)}
+                              </a>
+                            )}
+                            {m.phone && m.secondary_phone && <span>•</span>}
+                            {m.secondary_phone && (
+                              <a
+                                href={getWhatsAppUrl(
+                                  m.secondary_phone,
+                                  `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                                )}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ color: 'inherit', textDecoration: 'none', opacity: 0.85 }}
+                                title="Enviar WhatsApp al teléfono secundario"
+                              >
+                                {formatearTelefono(m.secondary_phone)}
+                              </a>
+                            )}
                           </div>
                         )}
                         {(m.municipio || m.address) && (
@@ -1549,12 +1664,13 @@ export default function RegistroClient({ profile }: Props) {
                             </span>
                           </div>
                           <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                            {m.phone ? formatearTelefono(m.phone) : 'Sin teléfono'} • {m.municipio || 'Nueva Esparta'}
+                            {m.phone ? formatearTelefono(m.phone) : 'Sin teléfono'}
+                            {m.secondary_phone ? ` / ${formatearTelefono(m.secondary_phone)}` : ''} • {m.municipio || 'Nueva Esparta'}
                           </p>
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {m.phone && (
                           <a
                             href={getWhatsAppUrl(
@@ -1565,7 +1681,22 @@ export default function RegistroClient({ profile }: Props) {
                             rel="noreferrer"
                             className="btn btn-secondary btn-icon"
                             style={{ width: 34, height: 34, color: '#25D366' }}
-                            title="Contactar por WhatsApp"
+                            title={`Contactar por WhatsApp (${formatearTelefono(m.phone)})`}
+                          >
+                            <MessageCircle size={15} />
+                          </a>
+                        )}
+                        {m.secondary_phone && (
+                          <a
+                            href={getWhatsAppUrl(
+                              m.secondary_phone,
+                              `Hola ${m.full_name}, Dios te bendiga 🙏. Te contacto de la Iglesia Avivamiento León de la Tribu de Judá.`
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-secondary btn-icon"
+                            style={{ width: 34, height: 34, color: '#25D366', background: 'rgba(37, 211, 102, 0.1)' }}
+                            title={`Contactar por WhatsApp secundario (${formatearTelefono(m.secondary_phone)})`}
                           >
                             <MessageCircle size={15} />
                           </a>

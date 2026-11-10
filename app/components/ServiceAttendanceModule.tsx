@@ -377,7 +377,7 @@ export default function ServiceAttendanceModule({
       if (memberSearch.trim()) {
         const query = memberSearch.toLowerCase().trim();
         const matchesName = m.full_name?.toLowerCase().includes(query);
-        const matchesPhone = m.phone?.toLowerCase().includes(query);
+        const matchesPhone = m.phone?.toLowerCase().includes(query) || m.secondary_phone?.toLowerCase().includes(query);
         const matchesMunicipio = m.municipio?.toLowerCase().includes(query);
         if (!matchesName && !matchesPhone && !matchesMunicipio) return false;
       }
@@ -740,8 +740,9 @@ export default function ServiceAttendanceModule({
     return serviceAttendees.filter((item) => {
       const name = item.member?.full_name?.toLowerCase() || '';
       const phone = item.member?.phone?.toLowerCase() || '';
+      const secPhone = item.member?.secondary_phone?.toLowerCase() || '';
       const status = item.member?.status?.toLowerCase() || '';
-      return name.includes(q) || phone.includes(q) || status.includes(q);
+      return name.includes(q) || phone.includes(q) || secPhone.includes(q) || status.includes(q);
     });
   }, [serviceAttendees, attendeeSearch]);
 

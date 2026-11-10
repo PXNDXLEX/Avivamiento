@@ -36,6 +36,7 @@ export interface Member {
   municipio: string | null;
   address: string | null;
   phone: string | null;
+  secondary_phone?: string | null;
   status: MemberStatus;
   house_group_id: string | null;
   consolidator_id: string | null;
