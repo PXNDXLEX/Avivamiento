@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut } from '@/app/actions';
 import type { Profile, Member } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate } from '@/lib/utils';
+import { formatearFecha, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoInternacionalInput } from '@/lib/utils';
 import {
   LogOut,
   Plus,
@@ -26,6 +26,7 @@ import {
   ClipboardList,
   PauseCircle,
   Calendar,
+  Globe,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 
@@ -76,6 +77,7 @@ export default function RegistroClient({ profile }: Props) {
     created_at: obtenerFechaActualInput(),
   };
   const [form, setForm] = useState(emptyForm);
+  const [isInternationalPhone, setIsInternationalPhone] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -180,6 +182,7 @@ export default function RegistroClient({ profile }: Props) {
   }
 
   function resetForm() {
+    setIsInternationalPhone(false);
     setForm(emptyForm);
     setError('');
     setEditingId(null);
@@ -192,13 +195,15 @@ export default function RegistroClient({ profile }: Props) {
   }
 
   function startEdit(member: Member) {
+    const isIntl = isTelefonoInternacional(member.phone);
+    setIsInternationalPhone(isIntl);
     setForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
+      phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
       status: member.status,
       created_at: formatearParaInputDate(member.created_at),
     });
@@ -214,18 +219,28 @@ export default function RegistroClient({ profile }: Props) {
     }
 
     setSaving(true);
-    // Validación de formato de teléfono venezolano (opcional: si no tiene número, se permite guardar en blanco)
+    // Validación de teléfono (venezolano o internacional, opcional: si no tiene número se permite guardar en blanco)
     const digitsOnly = form.phone ? form.phone.replace(/\D/g, '') : '';
     let cleanPhone: string | null = null;
 
     if (digitsOnly) {
-      const phoneVal = validarTelefonoVenezolano(form.phone);
-      if (!phoneVal.isValid) {
-        setError(phoneVal.error || 'Número de teléfono inválido.');
-        setSaving(false);
-        return;
+      if (isInternationalPhone) {
+        const phoneVal = validarTelefonoInternacional(form.phone);
+        if (!phoneVal.isValid) {
+          setError(phoneVal.error || 'Número internacional inválido.');
+          setSaving(false);
+          return;
+        }
+        cleanPhone = phoneVal.cleanPhone;
+      } else {
+        const phoneVal = validarTelefonoVenezolano(form.phone);
+        if (!phoneVal.isValid) {
+          setError(phoneVal.error || 'Número de teléfono inválido.');
+          setSaving(false);
+          return;
+        }
+        cleanPhone = phoneVal.cleanPhone;
       }
-      cleanPhone = phoneVal.cleanPhone;
     }
 
     const payload: any = {
@@ -499,61 +514,187 @@ export default function RegistroClient({ profile }: Props) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
-        </label>
-        <input
-          id="phone"
-          className="form-input"
-          type="tel"
-          inputMode="numeric"
-          maxLength={11}
-          placeholder="Ej: 04141234567 (opcional)"
-          value={form.phone}
-          onChange={(e) => {
-            const clean = limpiarTelefonoInput(e.target.value);
-            setForm((f) => ({ ...f, phone: clean }));
-          }}
-          style={{
-            borderColor: form.phone
-              ? validarTelefonoVenezolano(form.phone).isValid
-                ? '#10b981'
-                : form.phone.length >= 4 && !validarTelefonoVenezolano(form.phone).isPrefixValid
-                ? '#e74c3c'
-                : 'var(--border-gold)'
-              : undefined,
-          }}
-        />
-        {!form.phone ? (
-          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-            Puedes dejar este campo en blanco si la persona no tiene teléfono.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <label htmlFor="phone" className="form-label" style={{ margin: 0 }}>
+            <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setIsInternationalPhone((prev) => {
+                const next = !prev;
+                if (next) {
+                  if (!form.phone || !form.phone.startsWith('+')) {
+                    setForm((f) => ({ ...f, phone: '+' }));
+                  }
+                } else {
+                  if (form.phone.startsWith('+')) {
+                    const digits = form.phone.replace(/\D/g, '');
+                    const cleaned = digits.startsWith('58') ? '0' + digits.slice(2, 12) : digits.slice(0, 11);
+                    setForm((f) => ({ ...f, phone: cleaned }));
+                  }
+                }
+                return next;
+              });
+            }}
+            className="btn btn-secondary"
+            style={{
+              fontSize: '0.72rem',
+              padding: '0.22rem 0.55rem',
+              borderRadius: '6px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              background: isInternationalPhone ? 'rgba(212, 160, 23, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              borderColor: isInternationalPhone ? 'var(--gold)' : 'var(--border-gold)',
+              color: isInternationalPhone ? 'var(--gold)' : 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+            title="Alternar entre número nacional venezolano o internacional"
+          >
+            <Globe size={13} />
+            {isInternationalPhone ? '🌐 Modo Internacional Activo' : '🌐 ¿Número internacional?'}
+          </button>
+        </div>
+
+        {isInternationalPhone ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prefijos comunes:</span>
+              {[
+                { code: '+1', flag: '🇺🇸', label: 'USA' },
+                { code: '+57', flag: '🇨🇴', label: 'Col' },
+                { code: '+56', flag: '🇨🇱', label: 'Chile' },
+                { code: '+34', flag: '🇪🇸', label: 'Esp' },
+                { code: '+51', flag: '🇵🇪', label: 'Perú' },
+                { code: '+54', flag: '🇦🇷', label: 'Arg' },
+                { code: '+507', flag: '🇵🇦', label: 'Panamá' },
+              ].map((item) => (
+                <button
+                  key={item.code}
+                  type="button"
+                  onClick={() => {
+                    const digits = form.phone.replace(/\D/g, '');
+                    if (digits.length <= 3) {
+                      setForm((f) => ({ ...f, phone: item.code }));
+                    } else {
+                      setForm((f) => ({ ...f, phone: `${item.code} ` }));
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--border-gold)',
+                    borderRadius: '4px',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.68rem',
+                    padding: '0.15rem 0.4rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {item.flag} {item.code}
+                </button>
+              ))}
+            </div>
+
+            <input
+              id="phone"
+              className="form-input"
+              type="tel"
+              maxLength={16}
+              placeholder="Ej: +1 305 123 4567 o +57 300 123 4567"
+              value={form.phone}
+              onChange={(e) => {
+                const clean = limpiarTelefonoInternacionalInput(e.target.value);
+                setForm((f) => ({ ...f, phone: clean }));
+              }}
+              style={{
+                borderColor: form.phone && form.phone !== '+'
+                  ? validarTelefonoInternacional(form.phone).isValid
+                    ? '#10b981'
+                    : '#e74c3c'
+                  : 'var(--border-gold)',
+              }}
+            />
+
+            {(!form.phone || form.phone === '+') ? (
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                Escribe el número con el código de país (ej. +1... o +57...). Se puede dejar vacío si no tiene teléfono.
+              </p>
+            ) : (
+              <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                {(() => {
+                  const val = validarTelefonoInternacional(form.phone);
+                  if (val.isValid) {
+                    return (
+                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                        ✓ Número internacional válido ({formatearTelefono(form.phone)})
+                      </span>
+                    );
+                  }
+                  return (
+                    <span style={{ color: '#e74c3c' }}>
+                      ⚠️ {val.error}
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+          </>
         ) : (
-          <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-            {(() => {
-              const val = validarTelefonoVenezolano(form.phone);
-              if (val.isValid) {
-                return (
-                  <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                    ✓ Número válido ({form.phone.slice(0, 4)}-{form.phone.slice(4)})
-                  </span>
-                );
-              }
-              if (!val.isPrefixValid) {
-                return (
-                  <span style={{ color: '#e74c3c' }}>
-                    ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
-                  </span>
-                );
-              }
-              return (
-                <span style={{ color: '#f59e0b' }}>
-                  Prefijo {val.prefix} ✓ — Faltan {11 - form.phone.length} dígitos ({form.phone.length}/11)
-                </span>
-              );
-            })()}
-          </div>
+          <>
+            <input
+              id="phone"
+              className="form-input"
+              type="tel"
+              inputMode="numeric"
+              maxLength={11}
+              placeholder="Ej: 04141234567 (opcional)"
+              value={form.phone}
+              onChange={(e) => {
+                const clean = limpiarTelefonoInput(e.target.value);
+                setForm((f) => ({ ...f, phone: clean }));
+              }}
+              style={{
+                borderColor: form.phone
+                  ? validarTelefonoVenezolano(form.phone).isValid
+                    ? '#10b981'
+                    : form.phone.length >= 4 && !validarTelefonoVenezolano(form.phone).isPrefixValid
+                    ? '#e74c3c'
+                    : 'var(--border-gold)'
+                  : undefined,
+              }}
+            />
+            {!form.phone ? (
+              <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                Puedes dejar este campo en blanco si la persona no tiene teléfono.
+              </p>
+            ) : (
+              <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                {(() => {
+                  const val = validarTelefonoVenezolano(form.phone);
+                  if (val.isValid) {
+                    return (
+                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                        ✓ Número válido ({form.phone.slice(0, 4)}-{form.phone.slice(4)})
+                      </span>
+                    );
+                  }
+                  if (!val.isPrefixValid) {
+                    return (
+                      <span style={{ color: '#e74c3c' }}>
+                        ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                      </span>
+                    );
+                  }
+                  return (
+                    <span style={{ color: '#f59e0b' }}>
+                      Prefijo {val.prefix} ✓ — Faltan {11 - form.phone.length} dígitos ({form.phone.length}/11)
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+          </>
         )}
       </div>
 

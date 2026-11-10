@@ -122,6 +122,81 @@ export function limpiarTelefonoInput(value: string): string {
   return digits.slice(0, 11);
 }
 
+/**
+ * Limpia la entrada para números internacionales:
+ * Asegura el signo '+' al inicio y permite hasta 15 dígitos numéricos (estándar E.164).
+ */
+export function limpiarTelefonoInternacionalInput(value: string): string {
+  if (!value) return '+';
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '+';
+  return `+${digits.slice(0, 15)}`;
+}
+
+/**
+ * Detecta si una cadena de teléfono corresponde a un número internacional.
+ */
+export function isTelefonoInternacional(phone?: string | null): boolean {
+  if (!phone) return false;
+  const trimmed = phone.trim();
+  if (trimmed.startsWith('+')) return true;
+  return false;
+}
+
+/**
+ * Valida un número internacional según el estándar E.164 (código de país + número, entre 7 y 15 dígitos).
+ */
+export function validarTelefonoInternacional(phone?: string | null): ValidacionTelefono {
+  if (!phone || !phone.trim() || phone.trim() === '+') {
+    return {
+      isValid: true,
+      cleanPhone: '',
+      prefix: '',
+      isPrefixValid: true,
+    };
+  }
+
+  const trimmed = phone.trim();
+  const digitsOnly = trimmed.replace(/\D/g, '');
+
+  if (!digitsOnly) {
+    return {
+      isValid: true,
+      cleanPhone: '',
+      prefix: '',
+      isPrefixValid: true,
+    };
+  }
+
+  if (digitsOnly.length < 7) {
+    return {
+      isValid: false,
+      cleanPhone: `+${digitsOnly}`,
+      prefix: `+${digitsOnly.slice(0, 3)}`,
+      isPrefixValid: false,
+      error: `Faltan dígitos. Los números internacionales deben incluir su código de país y tener entre 7 y 15 dígitos (actualmente tiene ${digitsOnly.length}).`,
+    };
+  }
+
+  if (digitsOnly.length > 15) {
+    return {
+      isValid: false,
+      cleanPhone: `+${digitsOnly.slice(0, 15)}`,
+      prefix: `+${digitsOnly.slice(0, 3)}`,
+      isPrefixValid: false,
+      error: 'El número internacional no debe exceder los 15 dígitos.',
+    };
+  }
+
+  return {
+    isValid: true,
+    cleanPhone: `+${digitsOnly}`,
+    prefix: `+${digitsOnly.slice(0, 3)}`,
+    isPrefixValid: true,
+  };
+}
+
 export interface ValidacionTelefono {
   isValid: boolean;
   cleanPhone: string;
@@ -235,8 +310,39 @@ export function validarTelefonoVenezolano(phone?: string | null): ValidacionTele
 export function formatearTelefono(phone?: string | null): string {
   if (!phone) return '';
   const trimmed = phone.trim();
-  const digits = trimmed.replace(/\D/g, '');
 
+  // Caso internacional: empieza con '+'
+  if (trimmed.startsWith('+')) {
+    const digits = trimmed.replace(/\D/g, '');
+    if (!digits) return '';
+
+    // Si es venezolano en formato internacional +58:
+    if (digits.startsWith('58') && (digits.length === 12 || digits.length === 13)) {
+      let local = digits.slice(2);
+      if (local.startsWith('0')) local = local.slice(1);
+      return `+58 ${local.slice(0, 3)}-${local.slice(3)}`;
+    }
+    // +1 (USA / Canadá): +1 (XXX) XXX-XXXX
+    if (digits.startsWith('1') && digits.length === 11) {
+      return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    }
+    // +57 (Colombia): +57 XXX XXX XXXX
+    if (digits.startsWith('57') && digits.length === 12) {
+      return `+57 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+    }
+    // +34 (España): +34 XXX XX XX XX
+    if (digits.startsWith('34') && digits.length === 11) {
+      return `+34 ${digits.slice(2, 5)} ${digits.slice(5, 7)} ${digits.slice(7, 9)} ${digits.slice(9)}`;
+    }
+    // +56 (Chile): +56 9 XXXX XXXX
+    if (digits.startsWith('56') && digits.length === 11) {
+      return `+56 ${digits.slice(2, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`;
+    }
+    // Otros países: +CÓDIGO NÚMERO
+    return `+${digits}`;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
   if (!digits) return trimmed;
 
   // Caso: 5804141234567 -> 04141234567
@@ -264,15 +370,23 @@ export function formatearTelefono(phone?: string | null): string {
 }
 
 /**
- * Genera el enlace wa.me internacional garantizando el código de país +58 de Venezuela.
- * Convierte formatos como 0414..., 414..., +58414... a 58414... para que WhatsApp no dé error.
+ * Genera el enlace wa.me garantizando el código de país.
+ * Para números nacionales venezolanos (0414, 0424, etc.) antepone el código 58.
+ * Para números internacionales que inician con '+' preserva su código de país correspondiente.
  */
 export function getWhatsAppUrl(phone?: string | null, message?: string): string {
   if (!phone) return '';
-  let digits = phone.replace(/\D/g, '');
+  const trimmed = phone.trim();
+  let digits = trimmed.replace(/\D/g, '');
   if (!digits) return '';
 
-  if (digits.startsWith('580')) {
+  // Si es un número internacional (inicia con +), ya incluye su código de país
+  if (trimmed.startsWith('+')) {
+    if (digits.startsWith('580')) {
+      digits = '58' + digits.slice(3);
+    }
+    // Usar directamente los dígitos con su código de país
+  } else if (digits.startsWith('580')) {
     digits = '58' + digits.slice(3);
   } else if (digits.startsWith('58') && digits.length >= 12) {
     // Ya tiene el código 58
@@ -282,7 +396,7 @@ export function getWhatsAppUrl(phone?: string | null, message?: string): string 
   } else if (digits.length === 10 && /^(412|414|424|416|426|422)/.test(digits)) {
     // 414... -> 58414...
     digits = '58' + digits;
-  } else if (!digits.startsWith('58')) {
+  } else if (digits.length <= 11) {
     digits = '58' + digits;
   }
 

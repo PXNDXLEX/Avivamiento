@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { signOut, adminCreateUser, adminUpdateUserRole, adminUpdateUser, adminDeleteUser } from '@/app/actions';
 import type { Profile, Member, Role, HouseGroup, Attendance, HouseGroupMeeting, MemberFollowUp, FollowUpType } from '@/lib/types';
 import { MUNICIPIOS_NUEVA_ESPARTA } from '@/lib/types';
-import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate } from '@/lib/utils';
+import { formatearFecha, formatearFechaCorta, getRandomVersiculo, formatearTelefono, getWhatsAppUrl, formatearFechaInteraccion, validarTelefonoVenezolano, limpiarTelefonoInput, obtenerFechaActualInput, formatearParaInputDate, isTelefonoInternacional, validarTelefonoInternacional, limpiarTelefonoInternacionalInput } from '@/lib/utils';
 import {
   BarChart,
   Bar,
@@ -63,6 +63,7 @@ import {
   Clock,
   Eye,
   PauseCircle,
+  Globe,
 } from 'lucide-react';
 import MemberFollowUpSheet from '@/app/components/MemberFollowUpSheet';
 import ServiceAttendanceModule from '@/app/components/ServiceAttendanceModule';
@@ -416,6 +417,7 @@ export default function DashboardClient({ profile }: Props) {
     created_at: obtenerFechaActualInput(),
   };
   const [memberForm, setMemberForm] = useState(emptyMemberForm);
+  const [isInternationalPhone, setIsInternationalPhone] = useState(false);
   const [savingMember, setSavingMember] = useState(false);
   const [memberError, setMemberError] = useState('');
   const [assigningConsolidatorId, setAssigningConsolidatorId] = useState<string | null>(null);
@@ -1100,6 +1102,7 @@ export default function DashboardClient({ profile }: Props) {
     if (profile.role === 'pastor') return;
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
+    setIsInternationalPhone(false);
     setMemberForm({
       ...emptyMemberForm,
       consolidator_id: profile.id,
@@ -1111,13 +1114,15 @@ export default function DashboardClient({ profile }: Props) {
   }
 
   function openViewMember(member: Member) {
+    const isIntl = isTelefonoInternacional(member.phone);
+    setIsInternationalPhone(isIntl);
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
+      phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
       status: member.status,
       consolidator_id: member.consolidator_id || '',
       house_group_id: member.house_group_id || '',
@@ -1134,13 +1139,15 @@ export default function DashboardClient({ profile }: Props) {
     }
     if (profiles.length === 0) fetchProfiles();
     if (houseGroups.length === 0) fetchCasasData();
+    const isIntl = isTelefonoInternacional(member.phone);
+    setIsInternationalPhone(isIntl);
     setMemberForm({
       full_name: member.full_name,
       age: member.age?.toString() ?? '',
       gender: member.gender ?? '',
       municipio: member.municipio ?? '',
       address: member.address ?? '',
-      phone: member.phone ? member.phone.replace(/\D/g, '') : '',
+      phone: member.phone ? (isIntl ? member.phone : member.phone.replace(/\D/g, '')) : '',
       status: member.status,
       consolidator_id: member.consolidator_id || profile.id,
       house_group_id: member.house_group_id || '',
@@ -1160,17 +1167,26 @@ export default function DashboardClient({ profile }: Props) {
       return;
     }
 
-    // Validación de teléfono venezolano (opcional: si no tiene teléfono se permite guardar en blanco)
+    // Validación de teléfono (venezolano o internacional, opcional: si no tiene teléfono se permite guardar en blanco)
     const digitsOnly = memberForm.phone ? memberForm.phone.replace(/\D/g, '') : '';
     let cleanMemberPhone: string | null = null;
 
     if (digitsOnly) {
-      const phoneVal = validarTelefonoVenezolano(memberForm.phone);
-      if (!phoneVal.isValid) {
-        setMemberError(phoneVal.error || 'Número de teléfono inválido.');
-        return;
+      if (isInternationalPhone) {
+        const phoneVal = validarTelefonoInternacional(memberForm.phone);
+        if (!phoneVal.isValid) {
+          setMemberError(phoneVal.error || 'Número internacional inválido.');
+          return;
+        }
+        cleanMemberPhone = phoneVal.cleanPhone;
+      } else {
+        const phoneVal = validarTelefonoVenezolano(memberForm.phone);
+        if (!phoneVal.isValid) {
+          setMemberError(phoneVal.error || 'Número de teléfono inválido.');
+          return;
+        }
+        cleanMemberPhone = phoneVal.cleanPhone;
       }
-      cleanMemberPhone = phoneVal.cleanPhone;
     }
 
     setSavingMember(true);
@@ -4281,62 +4297,192 @@ export default function DashboardClient({ profile }: Props) {
             </div>
 
             <div className="form-group">
-              <label htmlFor="member-phone" className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>11 dígitos (0414, 0424, 0416, 0426, 0412, 0422)</span>
-              </label>
-              <input
-                id="member-phone"
-                className="form-input"
-                type="tel"
-                inputMode="numeric"
-                maxLength={11}
-                placeholder="Ej: 04141234567 (opcional)"
-                value={memberForm.phone}
-                disabled={memberModal.isReadOnly}
-                onChange={(e) => {
-                  const clean = limpiarTelefonoInput(e.target.value);
-                  setMemberForm((f) => ({ ...f, phone: clean }));
-                }}
-                style={{
-                  borderColor: memberForm.phone
-                    ? validarTelefonoVenezolano(memberForm.phone).isValid
-                      ? '#10b981'
-                      : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
-                      ? '#e74c3c'
-                      : 'var(--border-gold)'
-                    : undefined,
-                }}
-              />
-              {!memberForm.phone ? (
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                  Puedes dejar este campo en blanco si la persona no tiene teléfono.
-                </p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                <label htmlFor="member-phone" className="form-label" style={{ margin: 0 }}>
+                  <span>Teléfono <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>(Opcional)</span></span>
+                </label>
+                {!memberModal.isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsInternationalPhone((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          if (!memberForm.phone || !memberForm.phone.startsWith('+')) {
+                            setMemberForm((f) => ({ ...f, phone: '+' }));
+                          }
+                        } else {
+                          if (memberForm.phone.startsWith('+')) {
+                            const digits = memberForm.phone.replace(/\D/g, '');
+                            const cleaned = digits.startsWith('58') ? '0' + digits.slice(2, 12) : digits.slice(0, 11);
+                            setMemberForm((f) => ({ ...f, phone: cleaned }));
+                          }
+                        }
+                        return next;
+                      });
+                    }}
+                    className="btn btn-secondary"
+                    style={{
+                      fontSize: '0.72rem',
+                      padding: '0.22rem 0.55rem',
+                      borderRadius: '6px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      background: isInternationalPhone ? 'rgba(212, 160, 23, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                      borderColor: isInternationalPhone ? 'var(--gold)' : 'var(--border-gold)',
+                      color: isInternationalPhone ? 'var(--gold)' : 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
+                    title="Alternar entre número nacional venezolano o internacional"
+                  >
+                    <Globe size={13} />
+                    {isInternationalPhone ? '🌐 Modo Internacional Activo' : '🌐 ¿Número internacional?'}
+                  </button>
+                )}
+              </div>
+
+              {isInternationalPhone ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Prefijos comunes:</span>
+                    {[
+                      { code: '+1', flag: '🇺🇸', label: 'USA' },
+                      { code: '+57', flag: '🇨🇴', label: 'Col' },
+                      { code: '+56', flag: '🇨🇱', label: 'Chile' },
+                      { code: '+34', flag: '🇪🇸', label: 'Esp' },
+                      { code: '+51', flag: '🇵🇪', label: 'Perú' },
+                      { code: '+54', flag: '🇦🇷', label: 'Arg' },
+                      { code: '+507', flag: '🇵🇦', label: 'Panamá' },
+                    ].map((item) => (
+                      <button
+                        key={item.code}
+                        type="button"
+                        disabled={memberModal.isReadOnly}
+                        onClick={() => {
+                          const digits = memberForm.phone.replace(/\D/g, '');
+                          if (digits.length <= 3) {
+                            setMemberForm((f) => ({ ...f, phone: item.code }));
+                          } else {
+                            setMemberForm((f) => ({ ...f, phone: `${item.code} ` }));
+                          }
+                        }}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.04)',
+                          border: '1px solid var(--border-gold)',
+                          borderRadius: '4px',
+                          color: 'var(--text-secondary)',
+                          fontSize: '0.68rem',
+                          padding: '0.15rem 0.4rem',
+                          cursor: memberModal.isReadOnly ? 'default' : 'pointer',
+                        }}
+                      >
+                        {item.flag} {item.code}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    id="member-phone"
+                    className="form-input"
+                    type="tel"
+                    maxLength={16}
+                    placeholder="Ej: +1 305 123 4567 o +57 300 123 4567"
+                    value={memberForm.phone}
+                    disabled={memberModal.isReadOnly}
+                    onChange={(e) => {
+                      const clean = limpiarTelefonoInternacionalInput(e.target.value);
+                      setMemberForm((f) => ({ ...f, phone: clean }));
+                    }}
+                    style={{
+                      borderColor: memberForm.phone && memberForm.phone !== '+'
+                        ? validarTelefonoInternacional(memberForm.phone).isValid
+                          ? '#10b981'
+                          : '#e74c3c'
+                        : 'var(--border-gold)',
+                    }}
+                  />
+
+                  {(!memberForm.phone || memberForm.phone === '+') ? (
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                      Escribe el número con el código de país (ej. +1... o +57...). Se puede dejar vacío si no tiene teléfono.
+                    </p>
+                  ) : (
+                    <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                      {(() => {
+                        const val = validarTelefonoInternacional(memberForm.phone);
+                        if (val.isValid) {
+                          return (
+                            <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                              ✓ Número internacional válido ({formatearTelefono(memberForm.phone)})
+                            </span>
+                          );
+                        }
+                        return (
+                          <span style={{ color: '#e74c3c' }}>
+                            ⚠️ {val.error}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                  {(() => {
-                    const val = validarTelefonoVenezolano(memberForm.phone);
-                    if (val.isValid) {
-                      return (
-                        <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                          ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
-                        </span>
-                      );
-                    }
-                    if (!val.isPrefixValid) {
-                      return (
-                        <span style={{ color: '#e74c3c' }}>
-                          ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
-                        </span>
-                      );
-                    }
-                    return (
-                      <span style={{ color: '#f59e0b' }}>
-                        Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
-                      </span>
-                    );
-                  })()}
-                </div>
+                <>
+                  <input
+                    id="member-phone"
+                    className="form-input"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={11}
+                    placeholder="Ej: 04141234567 (opcional)"
+                    value={memberForm.phone}
+                    disabled={memberModal.isReadOnly}
+                    onChange={(e) => {
+                      const clean = limpiarTelefonoInput(e.target.value);
+                      setMemberForm((f) => ({ ...f, phone: clean }));
+                    }}
+                    style={{
+                      borderColor: memberForm.phone
+                        ? validarTelefonoVenezolano(memberForm.phone).isValid
+                          ? '#10b981'
+                          : memberForm.phone.length >= 4 && !validarTelefonoVenezolano(memberForm.phone).isPrefixValid
+                          ? '#e74c3c'
+                          : 'var(--border-gold)'
+                        : undefined,
+                    }}
+                  />
+                  {!memberForm.phone ? (
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                      Puedes dejar este campo en blanco si la persona no tiene teléfono.
+                    </p>
+                  ) : (
+                    <div style={{ fontSize: '0.75rem', marginTop: '0.35rem' }}>
+                      {(() => {
+                        const val = validarTelefonoVenezolano(memberForm.phone);
+                        if (val.isValid) {
+                          return (
+                            <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+                              ✓ Número válido ({memberForm.phone.slice(0, 4)}-{memberForm.phone.slice(4)})
+                            </span>
+                          );
+                        }
+                        if (!val.isPrefixValid) {
+                          return (
+                            <span style={{ color: '#e74c3c' }}>
+                              ⚠️ Prefijo no válido. Debe comenzar con 0414, 0424, 0416, 0426, 0412 o 0422.
+                            </span>
+                          );
+                        }
+                        return (
+                          <span style={{ color: '#f59e0b' }}>
+                            Prefijo {val.prefix} ✓ — Faltan {11 - memberForm.phone.length} dígitos ({memberForm.phone.length}/11)
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
