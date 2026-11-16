@@ -397,11 +397,6 @@ export default function DashboardClient({ profile }: Props) {
   const [houseGroups, setHouseGroups] = useState<HouseGroup[]>([]);
   const [attendances, setAttendances] = useState<Attendance[]>([]);
   const [houseGroupMeetings, setHouseGroupMeetings] = useState<HouseGroupMeeting[]>([]);
-  const [expandedCasaIds, setExpandedCasaIds] = useState<Record<string, boolean>>({});
-
-  const toggleCasaExpanded = (casaId: string) => {
-    setExpandedCasaIds((prev) => ({ ...prev, [casaId]: !prev[casaId] }));
-  };
 
   /* Member modal */
   const [memberModal, setMemberModal] = useState<{
@@ -4207,7 +4202,6 @@ export default function DashboardClient({ profile }: Props) {
                       const inactivos = casaMembers.filter((m) => m.status === 'Inactivo').length;
                       const leader = profiles.find((p) => p.id === casa.leader_id);
                       const leaderDisplayName = casa.leader_name || (leader ? leader.full_name : 'Sin líder asignado');
-                      const isExpanded = !!expandedCasaIds[casa.id];
 
                       return (
                         <div
@@ -4301,95 +4295,12 @@ export default function DashboardClient({ profile }: Props) {
 
                             {/* Barra de progreso visual */}
                             {total > 0 && (
-                              <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden', marginBottom: '0.5rem' }}>
+                              <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
                                 {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} title={`Consolidados: ${consolidados}`} />}
                                 {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} title={`Nuevos: ${nuevos}`} />}
                                 {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} title={`Reconciliados: ${reconciliados}`} />}
                                 {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} title={`Visitantes: ${visitantes}`} />}
                                 {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} title={`Inactivos: ${inactivos}`} />}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Botón expandir miembros */}
-                          <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '0.6rem' }}>
-                            <button
-                              type="button"
-                              onClick={() => toggleCasaExpanded(casa.id)}
-                              className="btn btn-secondary"
-                              style={{
-                                width: '100%',
-                                padding: '0.35rem 0.6rem',
-                                fontSize: '0.78rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.4rem',
-                                color: isExpanded ? 'var(--gold-primary)' : 'var(--text-secondary)',
-                              }}
-                            >
-                              <Users size={13} />
-                              {isExpanded ? 'Ocultar Miembros' : `Ver Miembros (${total})`}
-                              <ChevronDown size={14} style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
-                            </button>
-
-                            {/* Lista colapsable de miembros */}
-                            {isExpanded && (
-                              <div style={{ marginTop: '0.6rem', maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingRight: '0.2rem' }}>
-                                {casaMembers.length === 0 ? (
-                                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', margin: '0.6rem 0' }}>
-                                    No hay miembros asignados a esta Casa aún.
-                                  </p>
-                                ) : (
-                                  casaMembers.map((m) => (
-                                    <div
-                                      key={m.id}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: '0.4rem 0.55rem',
-                                        background: 'rgba(255, 255, 255, 0.02)',
-                                        borderRadius: '6px',
-                                        fontSize: '0.75rem',
-                                      }}
-                                    >
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flex: 1 }}>
-                                        <div className="avatar-placeholder" style={{ width: 22, height: 22, fontSize: '0.65rem' }}>
-                                          {m.full_name.charAt(0).toUpperCase()}
-                                        </div>
-                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {m.full_name}
-                                        </span>
-                                        <span className={`badge badge-${m.status.toLowerCase()}`} style={{ fontSize: '0.58rem', padding: '0.1rem 0.35rem' }}>
-                                          {m.status}
-                                        </span>
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: '0.5rem' }}>
-                                        {m.phone && (
-                                          <a
-                                            href={getWhatsAppUrl(m.phone)}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            style={{ color: '#25D366', textDecoration: 'none' }}
-                                            title="Enviar WhatsApp"
-                                          >
-                                            <MessageCircle size={13} />
-                                          </a>
-                                        )}
-                                        <button
-                                          type="button"
-                                          onClick={() => openViewMember(m)}
-                                          className="btn btn-secondary btn-icon"
-                                          style={{ width: 22, height: 22, padding: 0 }}
-                                          title="Ver detalles del miembro"
-                                        >
-                                          <Eye size={12} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ))
-                                )}
                               </div>
                             )}
                           </div>
@@ -4446,7 +4357,6 @@ export default function DashboardClient({ profile }: Props) {
                             const reconciliados = unassignedMembers.filter((m) => m.status === 'Reconciliado').length;
                             const visitantes = unassignedMembers.filter((m) => m.status === 'Visitante').length;
                             const inactivos = unassignedMembers.filter((m) => m.status === 'Inactivo').length;
-                            const isExpanded = !!expandedCasaIds['unassigned'];
 
                             return (
                               <>
@@ -4476,88 +4386,12 @@ export default function DashboardClient({ profile }: Props) {
                                 </div>
 
                                 {/* Barra de progreso */}
-                                <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden', marginBottom: '0.5rem' }}>
+                                <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
                                   {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} />}
                                   {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} />}
                                   {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} />}
                                   {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} />}
                                   {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} />}
-                                </div>
-
-                                {/* Expandir lista */}
-                                <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: '0.6rem' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleCasaExpanded('unassigned')}
-                                    className="btn btn-secondary"
-                                    style={{
-                                      width: '100%',
-                                      padding: '0.35rem 0.6rem',
-                                      fontSize: '0.78rem',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: '0.4rem',
-                                      color: isExpanded ? 'var(--gold-primary)' : 'var(--text-secondary)',
-                                    }}
-                                  >
-                                    <Users size={13} />
-                                    {isExpanded ? 'Ocultar Miembros' : `Ver Miembros (${total})`}
-                                    <ChevronDown size={14} style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
-                                  </button>
-
-                                  {isExpanded && (
-                                    <div style={{ marginTop: '0.6rem', maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.35rem', paddingRight: '0.2rem' }}>
-                                      {unassignedMembers.map((m) => (
-                                        <div
-                                          key={m.id}
-                                          style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            padding: '0.4rem 0.55rem',
-                                            background: 'rgba(255, 255, 255, 0.02)',
-                                            borderRadius: '6px',
-                                            fontSize: '0.75rem',
-                                          }}
-                                        >
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0, flex: 1 }}>
-                                            <div className="avatar-placeholder" style={{ width: 22, height: 22, fontSize: '0.65rem' }}>
-                                              {m.full_name.charAt(0).toUpperCase()}
-                                            </div>
-                                            <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                              {m.full_name}
-                                            </span>
-                                            <span className={`badge badge-${m.status.toLowerCase()}`} style={{ fontSize: '0.58rem', padding: '0.1rem 0.35rem' }}>
-                                              {m.status}
-                                            </span>
-                                          </div>
-                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: '0.5rem' }}>
-                                            {m.phone && (
-                                              <a
-                                                href={getWhatsAppUrl(m.phone)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                style={{ color: '#25D366', textDecoration: 'none' }}
-                                                title="Enviar WhatsApp"
-                                              >
-                                                <MessageCircle size={13} />
-                                              </a>
-                                            )}
-                                            <button
-                                              type="button"
-                                              onClick={() => openViewMember(m)}
-                                              className="btn btn-secondary btn-icon"
-                                              style={{ width: 22, height: 22, padding: 0 }}
-                                              title="Ver detalles del miembro"
-                                            >
-                                              <Eye size={12} />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
                                 </div>
                               </>
                             );
