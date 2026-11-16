@@ -356,7 +356,9 @@ export default function DashboardClient({ profile }: Props) {
 
   /* Tab */
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento'>('general');
+  const [reportsTab, setReportsTab] = useState<'general' | 'seguimiento' | 'casas'>('general');
+  const [reportCasaSearch, setReportCasaSearch] = useState('');
+  const [reportCasaMunicipioFilter, setReportCasaMunicipioFilter] = useState('');
   const [casasSubTab, setCasasSubTab] = useState<'gestionar' | 'asignar' | 'asistencia'>('gestionar');
   const [selectedCasaAttendanceId, setSelectedCasaAttendanceId] = useState<string | null>(null);
   const [casasChartType, setCasasChartType] = useState<'bar' | 'line'>('bar');
@@ -2775,7 +2777,7 @@ export default function DashboardClient({ profile }: Props) {
         {activeTab === 'reports' && (
           <div className="animate-fade-in">
             {/* Sub-tabs for Reports */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
               <button
                 onClick={() => setReportsTab('general')}
                 className={`btn ${reportsTab === 'general' ? 'btn-primary' : 'btn-secondary'}`}
@@ -2790,9 +2792,16 @@ export default function DashboardClient({ profile }: Props) {
               >
                 Seguimiento General
               </button>
+              <button
+                onClick={() => setReportsTab('casas')}
+                className={`btn ${reportsTab === 'casas' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ borderRadius: '20px', padding: '0.4rem 1.2rem' }}
+              >
+                Casas de Dios
+              </button>
             </div>
 
-            {reportsTab === 'general' ? (
+            {reportsTab === 'general' && (
               <div
                 style={{
                   display: 'grid',
@@ -2951,7 +2960,9 @@ export default function DashboardClient({ profile }: Props) {
                   )}
                 </div>
               </div>
-            ) : (
+            )}
+
+            {reportsTab === 'seguimiento' && (
               /* ── RESUMEN DE SEGUIMIENTO GENERAL ── */
               <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                 {/* Encabezado descriptivo */}
@@ -3457,6 +3468,389 @@ export default function DashboardClient({ profile }: Props) {
                 </div>
               </div>
             )}
+
+            {reportsTab === 'casas' && (() => {
+              const membersInCasas = members.filter((m) => m.house_group_id);
+              const unassignedMembers = members.filter((m) => !m.house_group_id);
+              const consolidadosInCasas = membersInCasas.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
+              const nuevosInCasas = membersInCasas.filter((m) => m.status === 'Nuevo').length;
+              const reconciliadosInCasas = membersInCasas.filter((m) => m.status === 'Reconciliado').length;
+              const visitantesInCasas = membersInCasas.filter((m) => m.status === 'Visitante').length;
+              const inactivosInCasas = membersInCasas.filter((m) => m.status === 'Inactivo').length;
+
+              // Filtrado de Casas de Dios
+              const query = reportCasaSearch.trim().toLowerCase();
+              const filteredCasas = houseGroups.filter((casa) => {
+                const leader = profiles.find((p) => p.id === casa.leader_id);
+                const leaderName = (casa.leader_name || (leader ? leader.full_name : '')).toLowerCase();
+                const casaMunicipio = (casa.municipio || 'Nueva Esparta').trim();
+
+                // Filtro por municipio
+                if (reportCasaMunicipioFilter && casaMunicipio !== reportCasaMunicipioFilter) {
+                  return false;
+                }
+
+                // Búsqueda rápida de texto
+                if (query) {
+                  const matchName = (casa.name || '').toLowerCase().includes(query);
+                  const matchAddress = (casa.address || '').toLowerCase().includes(query);
+                  const matchMunicipio = (casa.municipio || '').toLowerCase().includes(query);
+                  const matchLeader = leaderName.includes(query);
+                  if (!matchName && !matchAddress && !matchMunicipio && !matchLeader) {
+                    return false;
+                  }
+                }
+
+                return true;
+              });
+
+              const isFilterActive = Boolean(reportCasaSearch.trim() || reportCasaMunicipioFilter);
+              const showUnassigned = !reportCasaMunicipioFilter && (!query || 'sin casa de dios asignada'.includes(query));
+
+              return (
+                <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  {/* Cabecera del reporte */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h3 className="font-cinzel" style={{ fontSize: '1.2rem', color: 'var(--gold-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Home size={22} /> Resumen Estadístico de Casas de Dios
+                      </h3>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
+                        Métricas de congregación, líderes asignados y desglose de miembros en cantidad por Casa de Dios
+                      </p>
+                    </div>
+                    <span className="badge" style={{ background: 'rgba(212, 175, 55, 0.15)', color: 'var(--gold-primary)', border: '1px solid var(--border-gold)', fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+                      Total: {houseGroups.length} {houseGroups.length === 1 ? 'Casa de Dios' : 'Casas de Dios'}
+                    </span>
+                  </div>
+
+                  {/* Tarjetas KPI de Resumen General */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem' }}>
+                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid var(--border-gold)' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--gold-primary)' }}>{membersInCasas.length}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>En Casas de Dios</div>
+                    </div>
+                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#10b981' }}>{consolidadosInCasas}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Consolidados</div>
+                    </div>
+                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#38bdf8' }}>{nuevosInCasas}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Nuevos</div>
+                    </div>
+                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#a855f7' }}>{reconciliadosInCasas}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Reconciliados</div>
+                    </div>
+                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f59e0b' }}>{visitantesInCasas}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Visitantes</div>
+                    </div>
+                    {unassignedMembers.length > 0 && (
+                      <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px dashed var(--border-gold)', background: 'rgba(255, 255, 255, 0.02)' }}>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-muted)' }}>{unassignedMembers.length}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Sin Casa Asignada</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Barra de Filtros y Búsqueda */}
+                  <div className="card" style={{ padding: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', flex: 1, minWidth: '280px' }}>
+                      {/* Búsqueda rápida */}
+                      <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                        <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                        <input
+                          type="text"
+                          placeholder="Búsqueda rápida por nombre, dirección o líder..."
+                          value={reportCasaSearch}
+                          onChange={(e) => setReportCasaSearch(e.target.value)}
+                          className="form-input"
+                          style={{ paddingLeft: '2.2rem', paddingRight: reportCasaSearch ? '2rem' : '0.75rem' }}
+                        />
+                        {reportCasaSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setReportCasaSearch('')}
+                            style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}
+                            title="Limpiar búsqueda"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Selector de municipio */}
+                      <div style={{ minWidth: '200px' }}>
+                        <select
+                          className="form-select"
+                          value={reportCasaMunicipioFilter}
+                          onChange={(e) => setReportCasaMunicipioFilter(e.target.value)}
+                        >
+                          <option value="">Todos los municipios</option>
+                          {MUNICIPIOS_NUEVA_ESPARTA.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Contador y botón limpiar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                      <span className="badge" style={{ fontSize: '0.75rem', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
+                        Mostrando {filteredCasas.length} de {houseGroups.length}
+                      </span>
+                      {isFilterActive && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReportCasaSearch('');
+                            setReportCasaMunicipioFilter('');
+                          }}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                          title="Restablecer filtros"
+                        >
+                          <X size={12} /> Limpiar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Grid de Casas de Dios */}
+                  {filteredCasas.length === 0 && !showUnassigned ? (
+                    <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                      <Home size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
+                      <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary)' }}>No se encontraron Casas de Dios</p>
+                      <p style={{ fontSize: '0.82rem', marginTop: '0.25rem' }}>Prueba con otro término de búsqueda o selecciona otro municipio.</p>
+                      {isFilterActive && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReportCasaSearch('');
+                            setReportCasaMunicipioFilter('');
+                          }}
+                          className="btn btn-secondary"
+                          style={{ marginTop: '0.75rem', padding: '0.4rem 0.9rem', fontSize: '0.8rem' }}
+                        >
+                          Ver todas las Casas
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '1.25rem', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
+                      {filteredCasas.map((casa) => {
+                        const casaMembers = members.filter((m) => m.house_group_id === casa.id);
+                        const total = casaMembers.length;
+                        const consolidados = casaMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
+                        const nuevos = casaMembers.filter((m) => m.status === 'Nuevo').length;
+                        const reconciliados = casaMembers.filter((m) => m.status === 'Reconciliado').length;
+                        const visitantes = casaMembers.filter((m) => m.status === 'Visitante').length;
+                        const inactivos = casaMembers.filter((m) => m.status === 'Inactivo').length;
+                        const leader = profiles.find((p) => p.id === casa.leader_id);
+                        const leaderDisplayName = casa.leader_name || (leader ? leader.full_name : 'Sin líder asignado');
+
+                        return (
+                          <div
+                            key={casa.id}
+                            className="card"
+                            style={{
+                              padding: '1.25rem',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              border: '1px solid var(--border-gold)',
+                              background: 'var(--bg-secondary)',
+                              borderRadius: '10px',
+                            }}
+                          >
+                            <div>
+                              {/* Cabecera de la Casa */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.6rem' }}>
+                                <div>
+                                  <h4 className="font-cinzel" style={{ fontSize: '1.05rem', color: 'var(--gold-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    🏠 {casa.name}
+                                  </h4>
+                                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+                                    📍 {casa.municipio || 'Nueva Esparta'}{casa.address ? ` • ${casa.address}` : ''}
+                                  </p>
+                                </div>
+                                <span
+                                  className="badge"
+                                  style={{
+                                    background: 'rgba(212, 175, 55, 0.15)',
+                                    color: 'var(--gold-primary)',
+                                    border: '1px solid var(--border-gold)',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    padding: '0.2rem 0.55rem',
+                                    borderRadius: '15px',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {total} {total === 1 ? 'miembro' : 'miembros'}
+                                </span>
+                              </div>
+
+                              {/* Líder asignado */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.65rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px', fontSize: '0.78rem', marginBottom: '0.75rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>Líder:</span>
+                                  <strong style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {leaderDisplayName}
+                                  </strong>
+                                </div>
+                                {leader?.phone && (
+                                  <a
+                                    href={getWhatsAppUrl(leader.phone)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ color: '#25D366', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none', fontSize: '0.72rem', flexShrink: 0 }}
+                                    title="Contactar al líder por WhatsApp"
+                                  >
+                                    <MessageCircle size={12} />
+                                    {formatearTelefono(leader.phone)}
+                                  </a>
+                                )}
+                              </div>
+
+                              {/* Desglose de estados en chips */}
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(75px, 1fr))', gap: '0.35rem', marginBottom: '0.75rem' }}>
+                                <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981' }}>{consolidados}</div>
+                                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Consolidados</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#38bdf8' }}>{nuevos}</div>
+                                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Nuevos</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(168, 85, 247, 0.08)', borderRadius: '6px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+                                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#a855f7' }}>{reconciliados}</div>
+                                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Reconciliados</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f59e0b' }}>{visitantes}</div>
+                                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Visitantes</div>
+                                </div>
+                                {inactivos > 0 && (
+                                  <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(156, 163, 175, 0.08)', borderRadius: '6px', border: '1px solid rgba(156, 163, 175, 0.2)' }}>
+                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#9ca3af' }}>{inactivos}</div>
+                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Inactivos</div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Barra de progreso visual */}
+                              {total > 0 && (
+                                <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
+                                  {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} title={`Consolidados: ${consolidados}`} />}
+                                  {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} title={`Nuevos: ${nuevos}`} />}
+                                  {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} title={`Reconciliados: ${reconciliados}`} />}
+                                  {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} title={`Visitantes: ${visitantes}`} />}
+                                  {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} title={`Inactivos: ${inactivos}`} />}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Tarjeta para miembros sin Casa de Dios asignada */}
+                      {unassignedMembers.length > 0 && showUnassigned && (
+                        <div
+                          className="card"
+                          style={{
+                            padding: '1.25rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            border: '1px dashed var(--border-gold)',
+                            background: 'rgba(212, 175, 55, 0.02)',
+                            borderRadius: '10px',
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.6rem' }}>
+                              <div>
+                                <h4 className="font-cinzel" style={{ fontSize: '1.05rem', color: 'var(--text-muted)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                  ⏳ Sin Casa de Dios Asignada
+                                </h4>
+                                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+                                  Miembros de la congregación pendientes por vincular
+                                </p>
+                              </div>
+                              <span
+                                className="badge"
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.06)',
+                                  color: 'var(--text-secondary)',
+                                  border: '1px solid var(--border-subtle)',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700,
+                                  padding: '0.2rem 0.55rem',
+                                  borderRadius: '15px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {unassignedMembers.length} {unassignedMembers.length === 1 ? 'miembro' : 'miembros'}
+                              </span>
+                            </div>
+
+                            {/* Desglose de estados para no asignados */}
+                            {(() => {
+                              const total = unassignedMembers.length;
+                              const consolidados = unassignedMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
+                              const nuevos = unassignedMembers.filter((m) => m.status === 'Nuevo').length;
+                              const reconciliados = unassignedMembers.filter((m) => m.status === 'Reconciliado').length;
+                              const visitantes = unassignedMembers.filter((m) => m.status === 'Visitante').length;
+                              const inactivos = unassignedMembers.filter((m) => m.status === 'Inactivo').length;
+
+                              return (
+                                <>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(75px, 1fr))', gap: '0.35rem', marginBottom: '0.75rem', marginTop: '1.1rem' }}>
+                                    <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981' }}>{consolidados}</div>
+                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Consolidados</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+                                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#38bdf8' }}>{nuevos}</div>
+                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Nuevos</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(168, 85, 247, 0.08)', borderRadius: '6px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+                                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#a855f7' }}>{reconciliados}</div>
+                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Reconciliados</div>
+                                    </div>
+                                    <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f59e0b' }}>{visitantes}</div>
+                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Visitantes</div>
+                                    </div>
+                                    {inactivos > 0 && (
+                                      <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(156, 163, 175, 0.08)', borderRadius: '6px', border: '1px solid rgba(156, 163, 175, 0.2)' }}>
+                                        <div style={{ fontSize: '1rem', fontWeight: 700, color: '#9ca3af' }}>{inactivos}</div>
+                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Inactivos</div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Barra de progreso */}
+                                  <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
+                                    {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} />}
+                                    {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} />}
+                                    {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} />}
+                                    {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} />}
+                                    {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} />}
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -4038,373 +4432,98 @@ export default function DashboardClient({ profile }: Props) {
           </div>
         )}
         {/* ── Equipo Tab (pastor) ── */}
-        {activeTab === 'equipo' && profile.role === 'pastor' && (() => {
-          const membersInCasas = members.filter((m) => m.house_group_id);
-          const unassignedMembers = members.filter((m) => !m.house_group_id);
-          const consolidadosInCasas = membersInCasas.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
-          const nuevosInCasas = membersInCasas.filter((m) => m.status === 'Nuevo').length;
-          const reconciliadosInCasas = membersInCasas.filter((m) => m.status === 'Reconciliado').length;
-          const visitantesInCasas = membersInCasas.filter((m) => m.status === 'Visitante').length;
-          const inactivosInCasas = membersInCasas.filter((m) => m.status === 'Inactivo').length;
+        {activeTab === 'equipo' && profile.role === 'pastor' && (
+          <div className="animate-fade-in">
+            <h2 className="font-cinzel" style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Users size={20} style={{ color: 'var(--gold-primary)' }} /> Equipo de Trabajo
+            </h2>
 
-          return (
-            <div className="animate-fade-in">
-              <h2 className="font-cinzel" style={{ fontSize: '1.25rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Users size={20} style={{ color: 'var(--gold-primary)' }} /> Equipo Pastoral y Casas de Dios
-              </h2>
-
-              <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-                
-                {/* Lista de Consolidadores */}
-                <div className="card" style={{ padding: '1.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0, color: 'var(--gold-primary)' }}>
-                      Consolidadores
-                    </h3>
-                    <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
-                      {profiles.filter((p) => p.role === 'user').length} registrados
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {profiles.filter(p => p.role === 'user').map(p => {
-                      const assignedCount = members.filter((m) => m.consolidator_id === p.id).length;
-                      return (
-                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
-                            <div className="avatar-placeholder" style={{ width: 34, height: 34, flexShrink: 0 }}>
-                              {p.full_name.charAt(0).toUpperCase()}
-                            </div>
-                            <div style={{ minWidth: 0 }}>
-                              <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {p.full_name}
-                              </p>
-                              <p className="text-muted" style={{ fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
-                                {formatearTelefono(p.phone) || 'Sin teléfono'}
-                              </p>
-                            </div>
-                          </div>
-                          <span
-                            className="badge"
-                            style={{
-                              fontSize: '0.68rem',
-                              background: assignedCount > 0 ? 'rgba(212, 175, 55, 0.12)' : 'rgba(255, 255, 255, 0.04)',
-                              color: assignedCount > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
-                              border: assignedCount > 0 ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
-                              padding: '0.2rem 0.5rem',
-                              whiteSpace: 'nowrap',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {assignedCount} {assignedCount === 1 ? 'miembro' : 'miembros'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    {profiles.filter(p => p.role === 'user').length === 0 && (
-                      <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay consolidadores registrados.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Liderazgo y Pastoral */}
-                <div className="card" style={{ padding: '1.5rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                    <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0, color: 'var(--gold-primary)' }}>
-                      Liderazgo y Pastoral
-                    </h3>
-                    <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
-                      {profiles.filter((p) => p.role !== 'user').length} líderes
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {profiles.filter(p => p.role !== 'user').map(p => (
-                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                        <div className="avatar-placeholder" style={{ width: 34, height: 34, flexShrink: 0 }}>
-                          {p.full_name.charAt(0).toUpperCase()}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {p.full_name}
-                          </p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
-                            <span className={`badge badge-${p.role}`} style={{ fontSize: '0.62rem' }}>{ROLE_LABELS[p.role]}</span>
-                            {p.phone && <span className="text-muted" style={{ fontSize: '0.72rem' }}>{formatearTelefono(p.phone)}</span>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* ── Resumen Estadístico de Casas de Dios ── */}
-              <div style={{ marginTop: '2.5rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                  <div>
-                    <h3 className="font-cinzel" style={{ fontSize: '1.2rem', color: 'var(--gold-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Home size={20} /> Resumen de Casas de Dios
-                    </h3>
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}>
-                      Estadísticas de congregación, líderes asignados y desglose de miembros por cada Casa de Dios
-                    </p>
-                  </div>
-                  <span className="badge" style={{ background: 'rgba(212, 175, 55, 0.15)', color: 'var(--gold-primary)', border: '1px solid var(--border-gold)', fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
-                    Total: {houseGroups.length} {houseGroups.length === 1 ? 'Casa de Dios' : 'Casas de Dios'}
+            <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+              
+              {/* Lista de Consolidadores */}
+              <div className="card" style={{ padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0, color: 'var(--gold-primary)' }}>
+                    Consolidadores
+                  </h3>
+                  <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
+                    {profiles.filter((p) => p.role === 'user').length} registrados
                   </span>
                 </div>
-
-                {/* Tarjetas KPI de Resumen General */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                  <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid var(--border-gold)' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--gold-primary)' }}>{membersInCasas.length}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>En Casas de Dios</div>
-                  </div>
-                  <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#10b981' }}>{consolidadosInCasas}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Consolidados</div>
-                  </div>
-                  <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#38bdf8' }}>{nuevosInCasas}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Nuevos</div>
-                  </div>
-                  <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#a855f7' }}>{reconciliadosInCasas}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Reconciliados</div>
-                  </div>
-                  <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f59e0b' }}>{visitantesInCasas}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Visitantes</div>
-                  </div>
-                  {unassignedMembers.length > 0 && (
-                    <div className="card" style={{ padding: '0.85rem', textAlign: 'center', border: '1px dashed var(--border-gold)', background: 'rgba(255, 255, 255, 0.02)' }}>
-                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-muted)' }}>{unassignedMembers.length}</div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Sin Casa Asignada</div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Grid de todas las Casas de Dios */}
-                {houseGroups.length === 0 ? (
-                  <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                    <Home size={40} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                    <p style={{ margin: 0 }}>No hay Casas de Dios registradas todavía en la plataforma.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gap: '1.25rem', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-                    {houseGroups.map((casa) => {
-                      const casaMembers = members.filter((m) => m.house_group_id === casa.id);
-                      const total = casaMembers.length;
-                      const consolidados = casaMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
-                      const nuevos = casaMembers.filter((m) => m.status === 'Nuevo').length;
-                      const reconciliados = casaMembers.filter((m) => m.status === 'Reconciliado').length;
-                      const visitantes = casaMembers.filter((m) => m.status === 'Visitante').length;
-                      const inactivos = casaMembers.filter((m) => m.status === 'Inactivo').length;
-                      const leader = profiles.find((p) => p.id === casa.leader_id);
-                      const leaderDisplayName = casa.leader_name || (leader ? leader.full_name : 'Sin líder asignado');
-
-                      return (
-                        <div
-                          key={casa.id}
-                          className="card"
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {profiles.filter(p => p.role === 'user').map(p => {
+                    const assignedCount = members.filter((m) => m.consolidator_id === p.id).length;
+                    return (
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                          <div className="avatar-placeholder" style={{ width: 34, height: 34, flexShrink: 0 }}>
+                            {p.full_name.charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {p.full_name}
+                            </p>
+                            <p className="text-muted" style={{ fontSize: '0.75rem', margin: '0.15rem 0 0' }}>
+                              {formatearTelefono(p.phone) || 'Sin teléfono'}
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className="badge"
                           style={{
-                            padding: '1.25rem',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'space-between',
-                            border: '1px solid var(--border-gold)',
-                            background: 'var(--bg-secondary)',
-                            borderRadius: '10px',
+                            fontSize: '0.68rem',
+                            background: assignedCount > 0 ? 'rgba(212, 175, 55, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                            color: assignedCount > 0 ? 'var(--gold-primary)' : 'var(--text-muted)',
+                            border: assignedCount > 0 ? '1px solid var(--border-gold)' : '1px solid var(--border-subtle)',
+                            padding: '0.2rem 0.5rem',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
                           }}
                         >
-                          <div>
-                            {/* Cabecera de la Casa */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.6rem' }}>
-                              <div>
-                                <h4 className="font-cinzel" style={{ fontSize: '1.05rem', color: 'var(--gold-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                  🏠 {casa.name}
-                                </h4>
-                                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-                                  📍 {casa.municipio || 'Nueva Esparta'}{casa.address ? ` • ${casa.address}` : ''}
-                                </p>
-                              </div>
-                              <span
-                                className="badge"
-                                style={{
-                                  background: 'rgba(212, 175, 55, 0.15)',
-                                  color: 'var(--gold-primary)',
-                                  border: '1px solid var(--border-gold)',
-                                  fontSize: '0.75rem',
-                                  fontWeight: 700,
-                                  padding: '0.2rem 0.55rem',
-                                  borderRadius: '15px',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {total} {total === 1 ? 'miembro' : 'miembros'}
-                              </span>
-                            </div>
+                          {assignedCount} {assignedCount === 1 ? 'miembro' : 'miembros'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {profiles.filter(p => p.role === 'user').length === 0 && (
+                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>No hay consolidadores registrados.</p>
+                  )}
+                </div>
+              </div>
 
-                            {/* Líder asignado */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.45rem 0.65rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px', fontSize: '0.78rem', marginBottom: '0.75rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
-                                <span style={{ color: 'var(--text-muted)' }}>Líder:</span>
-                                <strong style={{ color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {leaderDisplayName}
-                                </strong>
-                              </div>
-                              {leader?.phone && (
-                                <a
-                                  href={getWhatsAppUrl(leader.phone)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ color: '#25D366', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none', fontSize: '0.72rem', flexShrink: 0 }}
-                                  title="Contactar al líder por WhatsApp"
-                                >
-                                  <MessageCircle size={12} />
-                                  {formatearTelefono(leader.phone)}
-                                </a>
-                              )}
-                            </div>
-
-                            {/* Desglose de estados en chips */}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(75px, 1fr))', gap: '0.35rem', marginBottom: '0.75rem' }}>
-                              <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981' }}>{consolidados}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Consolidados</div>
-                              </div>
-                              <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#38bdf8' }}>{nuevos}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Nuevos</div>
-                              </div>
-                              <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(168, 85, 247, 0.08)', borderRadius: '6px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
-                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#a855f7' }}>{reconciliados}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Reconciliados</div>
-                              </div>
-                              <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f59e0b' }}>{visitantes}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Visitantes</div>
-                              </div>
-                              {inactivos > 0 && (
-                                <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(156, 163, 175, 0.08)', borderRadius: '6px', border: '1px solid rgba(156, 163, 175, 0.2)' }}>
-                                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#9ca3af' }}>{inactivos}</div>
-                                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Inactivos</div>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Barra de progreso visual */}
-                            {total > 0 && (
-                              <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
-                                {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} title={`Consolidados: ${consolidados}`} />}
-                                {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} title={`Nuevos: ${nuevos}`} />}
-                                {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} title={`Reconciliados: ${reconciliados}`} />}
-                                {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} title={`Visitantes: ${visitantes}`} />}
-                                {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} title={`Inactivos: ${inactivos}`} />}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Tarjeta para miembros sin Casa de Dios asignada */}
-                    {unassignedMembers.length > 0 && (
-                      <div
-                        className="card"
-                        style={{
-                          padding: '1.25rem',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          border: '1px dashed var(--border-gold)',
-                          background: 'rgba(212, 175, 55, 0.02)',
-                          borderRadius: '10px',
-                        }}
-                      >
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.6rem' }}>
-                            <div>
-                              <h4 className="font-cinzel" style={{ fontSize: '1.05rem', color: 'var(--text-muted)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                ⏳ Sin Casa de Dios Asignada
-                              </h4>
-                              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
-                                Miembros de la congregación pendientes por vincular
-                              </p>
-                            </div>
-                            <span
-                              className="badge"
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.06)',
-                                color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-subtle)',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                padding: '0.2rem 0.55rem',
-                                borderRadius: '15px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {unassignedMembers.length} {unassignedMembers.length === 1 ? 'miembro' : 'miembros'}
-                            </span>
-                          </div>
-
-                          {/* Desglose de estados para no asignados */}
-                          {(() => {
-                            const total = unassignedMembers.length;
-                            const consolidados = unassignedMembers.filter((m) => m.status === 'Consolidado' || m.is_consolidated).length;
-                            const nuevos = unassignedMembers.filter((m) => m.status === 'Nuevo').length;
-                            const reconciliados = unassignedMembers.filter((m) => m.status === 'Reconciliado').length;
-                            const visitantes = unassignedMembers.filter((m) => m.status === 'Visitante').length;
-                            const inactivos = unassignedMembers.filter((m) => m.status === 'Inactivo').length;
-
-                            return (
-                              <>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(75px, 1fr))', gap: '0.35rem', marginBottom: '0.75rem', marginTop: '1.1rem' }}>
-                                  <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#10b981' }}>{consolidados}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Consolidados</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#38bdf8' }}>{nuevos}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Nuevos</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(168, 85, 247, 0.08)', borderRadius: '6px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#a855f7' }}>{reconciliados}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Reconciliados</div>
-                                  </div>
-                                  <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(245, 158, 11, 0.08)', borderRadius: '6px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#f59e0b' }}>{visitantes}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Visitantes</div>
-                                  </div>
-                                  {inactivos > 0 && (
-                                    <div style={{ textAlign: 'center', padding: '0.4rem 0.2rem', background: 'rgba(156, 163, 175, 0.08)', borderRadius: '6px', border: '1px solid rgba(156, 163, 175, 0.2)' }}>
-                                      <div style={{ fontSize: '1rem', fontWeight: 700, color: '#9ca3af' }}>{inactivos}</div>
-                                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Inactivos</div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Barra de progreso */}
-                                <div style={{ height: '6px', width: '100%', background: 'rgba(255, 255, 255, 0.06)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
-                                  {consolidados > 0 && <div style={{ width: `${(consolidados / total) * 100}%`, background: '#10b981' }} />}
-                                  {nuevos > 0 && <div style={{ width: `${(nuevos / total) * 100}%`, background: '#38bdf8' }} />}
-                                  {reconciliados > 0 && <div style={{ width: `${(reconciliados / total) * 100}%`, background: '#a855f7' }} />}
-                                  {visitantes > 0 && <div style={{ width: `${(visitantes / total) * 100}%`, background: '#f59e0b' }} />}
-                                  {inactivos > 0 && <div style={{ width: `${(inactivos / total) * 100}%`, background: '#9ca3af' }} />}
-                                </div>
-                              </>
-                            );
-                          })()}
+              {/* Liderazgo y Pastoral */}
+              <div className="card" style={{ padding: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 className="font-cinzel" style={{ fontSize: '1rem', margin: 0, color: 'var(--gold-primary)' }}>
+                    Liderazgo y Pastoral
+                  </h3>
+                  <span className="badge" style={{ fontSize: '0.72rem', background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}>
+                    {profiles.filter((p) => p.role !== 'user').length} líderes
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {profiles.filter(p => p.role !== 'user').map(p => (
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                      <div className="avatar-placeholder" style={{ width: 34, height: 34, flexShrink: 0 }}>
+                        {p.full_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 600, fontSize: '0.9rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.full_name}
+                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                          <span className={`badge badge-${p.role}`} style={{ fontSize: '0.62rem' }}>{ROLE_LABELS[p.role]}</span>
+                          {p.phone && <span className="text-muted" style={{ fontSize: '0.72rem' }}>{formatearTelefono(p.phone)}</span>}
                         </div>
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  ))}
+                </div>
               </div>
+
             </div>
-          );
-        })()}
+          </div>
+        )}
       </main>
 
       {/* ── Member Modal ── */}
